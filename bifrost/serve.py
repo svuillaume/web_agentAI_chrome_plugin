@@ -83,6 +83,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.serve_config()
         elif self.path.startswith('/search'):
             self.serve_search()
+        elif self.path == '/compliance/list':
+            self.serve_compliance_list()
         else:
             self.send_error(404)
 
@@ -296,97 +298,98 @@ class Handler(http.server.BaseHTTPRequestHandler):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    # Maps framework short IDs → exact --report_name strings the lacework CLI accepts
-    COMPLIANCE_REPORT_NAMES = {
-        # AWS
-        'AWS_CIS_14':       'CIS Amazon Web Services Foundations Benchmark v1.4.0',
-        'AWS_CIS_12':       'CIS Amazon Web Services Foundations Benchmark v1.2.0',
-        'AWS_NIST_CSF':     'AWS NIST CSF',
-        'AWS_NIST_80053':   'AWS NIST 800-53 rev5',
-        'AWS_NIST_800171':  'AWS NIST 800-171 rev2',
-        'AWS_PCI_321':      'AWS PCI DSS 3.2.1',
-        'AWS_PCI_40':       'AWS PCI DSS 4.0.0',
-        'AWS_SOC2':         'AWS SOC 2 Report Rev2',
-        'AWS_HIPAA':        'AWS HIPAA Report',
-        'AWS_ISO27001':     'AWS ISO 27001:2013 Report',
-        # Azure
-        'AZURE_CIS_131':    'Azure CIS 1.3.1 Report',
-        'AZURE_CIS_15':     'CIS Microsoft Azure',
-        'AZURE_NIST_CSF':   'Azure NIST CSF Report',
-        'AZURE_NIST_80053': 'Azure NIST 800-53 Rev5 Report',
-        'AZURE_NIST_800171':'Azure NIST 800-171 Rev2 Report',
-        'AZURE_PCI_321':    'Azure PCI DSS 3.2.1 CIS 1.5',
-        'AZURE_PCI_40':     'Azure PCI DSS 4.0.0 CIS 1.5',
-        'AZURE_SOC2':       'Azure SOC 2 Report Rev2',
-        'AZURE_HIPAA':      'Azure HIPAA Report',
-        'AZURE_ISO27001':   'Azure ISO 27001 Report',
-        # GCP
-        'GCP_CIS_13':       'GCP CIS Benchmark 1.3',
-        'GCP_CIS_12':       'GCP CIS Benchmark 1.2',
-        'GCP_NIST_CSF':     'GCP NIST CSF Report',
-        'GCP_NIST_80053':   'GCP NIST 800-53 rev5',
-        'GCP_NIST_800171':  'GCP NIST 800 171 REV2 Report',
-        'GCP_PCI_321':      'GCP PCI DSS 3.2.1',
-        'GCP_PCI_40':       'GCP PCI DSS 4.0.0',
-        'GCP_SOC2':         'GCP SOC 2 Report Rev2',
-        'GCP_HIPAA':        'GCP HIPAA Report Rev2',
-        'GCP_ISO27001':     'GCP ISO 27001 Report',
-    }
+    def _lw_token(self):
+        """Obtain a short-lived Bearer token from ~/.lacework.toml credentials."""
+        toml_path = os.path.expanduser('~/.lacework.toml')
+        account = api_key = api_secret = ''
+        if os.path.exists(toml_path):
+            with open(toml_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('account'):
+                        account    = line.split('=',1)[1].strip().strip('"')
+                    elif line.startswith('api_key'):
+                        api_key    = line.split('=',1)[1].strip().strip('"')
+                    elif line.startswith('api_secret'):
+                        api_secret = line.split('=',1)[1].strip().strip('"')
+        if not (account and api_key and api_secret):
+            raise ValueError('lacework credentials not found in ~/.lacework.toml')
+        base_url = f'https://{account}.lacework.net'
+        body = json.dumps({'keyId': api_key, 'expiryTime': 3600}).encode()
+        req = urllib.request.Request(
+            f'{base_url}/api/v2/access/tokens', data=body, method='POST',
+            headers={'X-LW-UAKS': api_secret, 'Content-Type': 'application/json'})
+        resp = urllib.request.urlopen(req, timeout=15)
+        token_data = json.loads(resp.read())
+        return token_data['token'], base_url
+
+    def serve_compliance_list(self):
+        """Return all ReportConfigurations from the FortiCNAPP tenant."""
+        try:
+            token, base_url = self._lw_token()
+        except Exception as e:
+            self.send_json(503, json.dumps({'error': str(e)}).encode())
+            return
+        req = urllib.request.Request(
+            f'{base_url}/api/v2/ReportConfigurations',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+        try:
+            resp = urllib.request.urlopen(req, timeout=15)
+            raw  = json.loads(resp.read())
+            # Return simplified list: guid, name, type, format
+            configs = [
+                {
+                    'guid':   r['reportConfigGuid'],
+                    'name':   r['name'],
+                    'type':   r.get('type', ''),
+                    'format': r.get('format', 'pdf'),
+                }
+                for r in raw.get('data', [])
+            ]
+            self.send_json(200, json.dumps({'configs': configs}).encode())
+        except urllib.error.HTTPError as e:
+            self.send_json(e.code, e.read())
 
     def serve_compliance(self):
-        """Accept JSON {cloud, framework, accountId}, run lacework compliance get-report --pdf."""
-        if not shutil.which('lacework'):
-            self.send_json(503, json.dumps({'error': 'lacework CLI not found'}).encode())
-            return
+        """Accept JSON {guid}, call generate endpoint, stream PDF back."""
         try:
             payload = json.loads(self._read_body())
         except json.JSONDecodeError:
-            self.send_error(400, 'Expected JSON {cloud, framework, accountId}')
+            self.send_error(400, 'Expected JSON {guid}')
             return
 
-        cloud      = payload.get('cloud', '').lower()
-        framework  = payload.get('framework', '').strip()
-        account_id = payload.get('accountId', '').strip()
-
-        cloud_cmd_map = {'aws': 'aws', 'azure': 'azure', 'gcp': 'google'}
-        if cloud not in cloud_cmd_map:
-            self.send_json(400, json.dumps({'error': f'Unknown cloud: {cloud}'}).encode())
+        guid = payload.get('guid', '').strip()
+        if not guid:
+            self.send_json(400, json.dumps({'error': 'guid is required'}).encode())
             return
 
-        report_name = self.COMPLIANCE_REPORT_NAMES.get(framework)
-        if not report_name:
-            self.send_json(400, json.dumps({'error': f'Unknown framework: {framework}'}).encode())
-            return
-
-        tmpdir = tempfile.mkdtemp(prefix='bifrost-compliance-')
         try:
-            # lacework writes the PDF to cwd with an auto-generated filename
-            cmd = ['lacework', 'compliance', cloud_cmd_map[cloud], 'get-report']
-            if account_id:
-                cmd.append(account_id)
-            cmd += ['--pdf', f'--report_name={report_name}', '--noninteractive']
+            token, base_url = self._lw_token()
+        except Exception as e:
+            self.send_json(503, json.dumps({'error': str(e)}).encode())
+            return
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120, cwd=tmpdir)
+        # Use last 7 days as the report window
+        import datetime
+        end   = datetime.datetime.now(datetime.timezone.utc)
+        start = end - datetime.timedelta(days=7)
+        fmt_t = lambda d: d.strftime('%Y-%m-%dT%H:%M:%SZ')
+        url = (f'{base_url}/api/v2/ReportConfigurations/{guid}/generate'
+               f'?startTime={fmt_t(start)}&endTime={fmt_t(end)}&format=pdf')
 
-            # Find the generated PDF in tmpdir
-            import glob as _glob
-            pdfs = _glob.glob(os.path.join(tmpdir, '*.pdf'))
-            if pdfs:
-                with open(pdfs[0], 'rb') as f:
-                    pdf_bytes = f.read()
-                safe_fw = framework.replace('/', '-')
-                self.send_pdf(pdf_bytes, f'compliance-{cloud}-{safe_fw}.pdf')
-            else:
-                stderr = (result.stdout + result.stderr)[-2000:]
-                self.send_json(500, json.dumps({
-                    'error': 'No PDF generated — check lacework credentials or account ID',
-                    'stderr': stderr,
-                }).encode())
-        except subprocess.TimeoutExpired:
-            self.send_json(504, json.dumps({'error': 'compliance report timed out'}).encode())
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        req = urllib.request.Request(url, method='POST',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+        try:
+            resp = urllib.request.urlopen(req, timeout=120)
+            pdf_bytes = resp.read()
+            self.send_pdf(pdf_bytes, f'compliance-{guid}.pdf')
+        except urllib.error.HTTPError as e:
+            err_body = e.read()
+            try:
+                err_msg = json.loads(err_body).get('message', err_body.decode())
+            except Exception:
+                err_msg = err_body.decode()[:500]
+            self.send_json(e.code, json.dumps({'error': err_msg}).encode())
 
     def log_message(self, fmt, *args):
         print(f'  {self.address_string()} {fmt % args}')
@@ -402,5 +405,6 @@ print(f'CodeSec scan     →  POST /codesec     {"(lacework CLI ready)" if LW_AV
 print(f'SBOM export      →  POST /sbom        {"(lacework CLI ready)" if LW_AVAILABLE else "(WARNING: lacework CLI not found)"}')
 print(f'Compliance PDF   →  POST /compliance  {"(lacework CLI ready)" if LW_AVAILABLE else "(WARNING: lacework CLI not found)"}')
 
+socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(('', PORT), Handler) as httpd:
     httpd.serve_forever()

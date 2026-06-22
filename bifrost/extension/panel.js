@@ -699,80 +699,53 @@ el('codesec-close').addEventListener('click', () => {
 
 // ── FortiCNAPP Compliance Report ──────────────────────────────────────────
 
-const FRAMEWORKS = {
-  aws: [
-    { id: 'AWS_CIS_14',      label: 'CIS AWS 1.4' },
-    { id: 'AWS_CIS_12',      label: 'CIS AWS 1.2' },
-    { id: 'AWS_NIST_CSF',    label: 'NIST CSF' },
-    { id: 'AWS_NIST_80053',  label: 'NIST 800-53 Rev 5' },
-    { id: 'AWS_NIST_800171', label: 'NIST 800-171 Rev 2' },
-    { id: 'AWS_PCI_321',     label: 'PCI DSS 3.2.1' },
-    { id: 'AWS_PCI_40',      label: 'PCI DSS 4.0' },
-    { id: 'AWS_SOC2',        label: 'SOC 2' },
-    { id: 'AWS_HIPAA',       label: 'HIPAA' },
-    { id: 'AWS_ISO27001',    label: 'ISO 27001:2013' },
-  ],
-  azure: [
-    { id: 'AZURE_CIS_131',    label: 'CIS Azure 1.3.1' },
-    { id: 'AZURE_CIS_15',     label: 'CIS Azure 1.5' },
-    { id: 'AZURE_NIST_CSF',   label: 'NIST CSF' },
-    { id: 'AZURE_NIST_80053', label: 'NIST 800-53 Rev 5' },
-    { id: 'AZURE_NIST_800171',label: 'NIST 800-171 Rev 2' },
-    { id: 'AZURE_PCI_321',    label: 'PCI DSS 3.2.1' },
-    { id: 'AZURE_PCI_40',     label: 'PCI DSS 4.0' },
-    { id: 'AZURE_SOC2',       label: 'SOC 2' },
-    { id: 'AZURE_HIPAA',      label: 'HIPAA' },
-    { id: 'AZURE_ISO27001',   label: 'ISO 27001:2013' },
-  ],
-  gcp: [
-    { id: 'GCP_CIS_13',      label: 'CIS GCP 1.3' },
-    { id: 'GCP_CIS_12',      label: 'CIS GCP 1.2' },
-    { id: 'GCP_NIST_CSF',    label: 'NIST CSF' },
-    { id: 'GCP_NIST_80053',  label: 'NIST 800-53 Rev 5' },
-    { id: 'GCP_NIST_800171', label: 'NIST 800-171 Rev 2' },
-    { id: 'GCP_PCI_321',     label: 'PCI DSS 3.2.1' },
-    { id: 'GCP_PCI_40',      label: 'PCI DSS 4.0' },
-    { id: 'GCP_SOC2',        label: 'SOC 2' },
-    { id: 'GCP_HIPAA',       label: 'HIPAA' },
-    { id: 'GCP_ISO27001',    label: 'ISO 27001:2013' },
-  ],
-};
-
-function populateFrameworks(cloud) {
-  const sel = el('comp-framework');
-  sel.innerHTML = '';
-  (FRAMEWORKS[cloud] || []).forEach(f => {
-    const opt = document.createElement('option');
-    opt.value = f.id;
-    opt.textContent = f.label;
-    sel.appendChild(opt);
-  });
-}
-
-// Initialise framework list on load
-populateFrameworks('aws');
-
-el('comp-cloud').addEventListener('change', () => populateFrameworks(el('comp-cloud').value));
-
-el('compliance').addEventListener('click', () => {
+el('compliance').addEventListener('click', async () => {
   const panel = el('compliance-panel');
-  panel.classList.toggle('open');
-  // close codesec panel if open
+  const isOpen = panel.classList.contains('open');
+  panel.classList.toggle('open', !isOpen);
   el('codesec-panel').classList.remove('open');
+  if (!isOpen) loadComplianceReports();
 });
 
 el('compliance-close').addEventListener('click', () => {
   el('compliance-panel').classList.remove('open');
 });
 
-async function runComplianceReport() {
-  const btn       = el('comp-generate');
-  const statusEl  = el('comp-status');
-  const cloud     = el('comp-cloud').value;
-  const framework = el('comp-framework').value;
-  const accountId = el('comp-account').value.trim();
+async function loadComplianceReports() {
+  const sel = el('comp-report');
+  sel.innerHTML = '<option value="">Loading…</option>';
+  sel.disabled = true;
+  try {
+    const res  = await fetch('http://localhost:8765/compliance/list');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const configs = data.configs || [];
+    sel.innerHTML = '';
+    if (!configs.length) {
+      sel.innerHTML = '<option value="">No report configs found</option>';
+      return;
+    }
+    configs.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value       = c.guid;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+  } catch (e) {
+    sel.innerHTML = `<option value="">Error: ${e.message}</option>`;
+  }
+}
 
-  btn.disabled = true;
+async function runComplianceReport() {
+  const btn      = el('comp-generate');
+  const statusEl = el('comp-status');
+  const guid     = el('comp-report').value;
+  const name     = el('comp-report').selectedOptions[0]?.textContent || guid;
+
+  if (!guid) { statusEl.textContent = '✗ Select a report first'; statusEl.className = 'err'; return; }
+
+  btn.disabled         = true;
   statusEl.textContent = 'generating…';
   statusEl.className   = '';
   setStatus('generating compliance PDF…', 'busy');
@@ -781,7 +754,7 @@ async function runComplianceReport() {
     const res = await fetch('http://localhost:8765/compliance', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ cloud, framework, accountId }),
+      body:    JSON.stringify({ guid }),
     });
 
     if (!res.ok) {
@@ -790,17 +763,17 @@ async function runComplianceReport() {
     }
 
     const ct = res.headers.get('content-type') || '';
-    if (ct.includes('application/pdf')) {
-      const blob    = await res.blob();
-      const url     = URL.createObjectURL(blob);
-      const fname   = `compliance-${cloud}-${framework}.pdf`;
+    if (ct.includes('pdf') || ct.includes('octet-stream')) {
+      const blob  = await res.blob();
+      const url   = URL.createObjectURL(blob);
+      const fname = `compliance-${guid}.pdf`;
       chrome.downloads
         ? chrome.downloads.download({ url, filename: fname })
         : chrome.tabs.create({ url });
       statusEl.textContent = '✓ PDF downloaded';
       statusEl.className   = 'ok';
       setStatus('PDF ready', 'ok');
-      appendTurn('system', `📋 Compliance PDF: ${cloud.toUpperCase()} / ${framework}`);
+      appendTurn('system', `📋 Compliance PDF: ${name}`);
     } else {
       const data = await res.json();
       throw new Error(data.error || 'No PDF returned');

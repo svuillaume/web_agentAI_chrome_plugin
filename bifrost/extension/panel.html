@@ -250,9 +250,7 @@ body {
   outline: none;
 }
 #compliance-body select:focus, #compliance-body input[type="text"]:focus { border-color: var(--ok); }
-#comp-cloud     { width: 80px; }
-#comp-framework { width: 160px; }
-#comp-account   { width: 160px; }
+#comp-report    { flex: 1; min-width: 180px; }
 #comp-generate {
   font-family: var(--mono);
   font-size: 11px;
@@ -441,13 +439,7 @@ body {
     <span class="cs-close" id="compliance-close">✕</span>
   </div>
   <div id="compliance-body">
-    <select id="comp-cloud">
-      <option value="aws">AWS</option>
-      <option value="azure">Azure</option>
-      <option value="gcp">GCP</option>
-    </select>
-    <select id="comp-framework"></select>
-    <input type="text" id="comp-account" placeholder="AWS account / Azure tenant / GCP project" autocomplete="off" />
+    <select id="comp-report" style="flex:1;min-width:180px"><option value="">Loading reports…</option></select>
     <button id="comp-generate">⬇ Generate PDF</button>
     <span id="comp-status"></span>
   </div>
