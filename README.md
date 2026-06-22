@@ -134,6 +134,8 @@ The extension automatically uses `SEARXNG_URL` from `.env` (loaded via serve.py)
 
 ### Prerequisites
 
+> **API key required** — CodeSec and Compliance Report both require a FortiCNAPP API key configured in `~/.lacework.toml`.
+
 Install and configure the Lacework CLI:
 
 ```bash
