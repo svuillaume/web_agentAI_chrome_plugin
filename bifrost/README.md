@@ -1,4 +1,4 @@
-# Bifrost Chat — Chrome Extension
+# Bifrost — Chrome Extension
 
 A minimal Chrome side-panel chat UI for the [Bifrost AI Gateway](https://bifrost.fabriclab.ca).
 
