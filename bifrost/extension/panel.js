@@ -149,12 +149,12 @@ appendTurn('ai', `**Web AI Agent** — your browser-native security assistant po
 **What I can do on any page you're browsing:**
 • 📄 **Read** — load the page into context so you can ask questions about it
 • **TL;DR** — summarise the page in 3–5 bullets with source links
-• 🛡 **Scan** — run a FortiCNAPP SCA + SAST scan on any code found on the page
-• 📋 **Compliance** — generate a FortiCNAPP compliance PDF report
 
-**Cloud security tools:**
-• 🚨 **CVE** — quick attack surface assessment: search any CVE (e.g. CVE-2021-44228) across your hosts and containers, ranked by internet exposure and host risk score
-• 🔍 **LQL — Saved queries** — run pre-built Lacework Query Language queries against your live FortiCNAPP tenant
+**Cloud security tools** _(🔑 require a valid FortiCNAPP API key configured in the backend)_:
+• 🛡 **Scan** — FortiCNAPP SCA + SAST scan on code found on this page
+• 📋 **Compliance** — generate a FortiCNAPP compliance PDF report
+• 🚨 **CVE** — attack surface assessment: search any CVE (e.g. CVE-2021-44228) across hosts and containers, ranked by internet exposure and host risk score
+• 🔍 **LQL — Saved queries** — run pre-built Lacework Query Language queries against your live tenant
 • ✨ **LQL — Generate** — describe what you want to find in plain English; I'll build and run the LQL query for you
 
 Type anything below to start a conversation.`);
