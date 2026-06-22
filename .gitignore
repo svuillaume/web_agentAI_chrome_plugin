@@ -1,6 +1,3 @@
-eks-cluster/
-lql/
-weather-mcp/
 .DS_Store
 .gitmodules
 .lacework/
@@ -9,6 +6,3 @@ weather-mcp/
 api.key
 blisters.md
 cnapp.html
-demo.php
-forticnapp-azure-ciem.md
-forticnapp-azure-integration.skill
