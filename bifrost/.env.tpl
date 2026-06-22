@@ -1,0 +1,4 @@
+ANTHROPIC_BASE_URL=https://bifrost.xxx
+BIFROST_VIRTUAL_KEY=sk-bf-xxx-xxx
+ANTHROPIC_DEFAULT_MODEL=xxx
+
