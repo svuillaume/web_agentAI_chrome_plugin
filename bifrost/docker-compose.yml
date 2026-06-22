@@ -1,0 +1,9 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: bifrost-search
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    restart: unless-stopped

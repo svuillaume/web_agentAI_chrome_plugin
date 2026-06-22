@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Bifrost Chat",
-  "version": "1.4",
+  "version": "1.7",
   "description": "Chat for Bifrost AI Gateway",
-  "permissions": ["storage", "sidePanel"],
-  "host_permissions": ["https://*/*"],
+  "permissions": ["storage", "sidePanel", "tabs", "activeTab", "scripting"],
+  "host_permissions": ["https://*/*", "http://localhost/*"],
   "content_security_policy": {
-    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https:; img-src 'self'"
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https: http://localhost:8080; img-src 'self'"
   },
+  "web_accessible_resources": [{ "resources": ["config.json"], "matches": ["<all_urls>"] }],
   "background": {
     "service_worker": "background.js"
   },
