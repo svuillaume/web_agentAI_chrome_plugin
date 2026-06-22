@@ -1,3 +1,4 @@
+#Optional - only if you are running LW CodeScan
 default:
   sca:
     enabled: true
