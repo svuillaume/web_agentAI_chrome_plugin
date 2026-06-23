@@ -1,11 +1,10 @@
-# BETA Project - New Features welcome - New Integrations to come ...
+# Web AI Agent — Chrome Extension
 
-# Web AI Agent — Chrome Extension 
+> **License**: Apache 2.0 — see [LICENSE](LICENSE) | **Status**: BETA — new features and integrations welcome
 
-I am your Web AI Security Agent integrating with your best AI Gateway platfrom (LLMlite, Portkey, Helicone, ...) built into Chrome and powered by FortiCNAPP for real-time code scanning and cloud security insights.
+A browser-based AI security agent that integrates with any AI Gateway (LLMlite, Portkey, Helicone, …) and any CNAPP platform via the Lacework CLI. Runs as a Chrome side panel — ask questions about any webpage, scan code for vulnerabilities, run cloud security queries, and generate LQL from plain English without leaving your browser.
 
-Ask questions about any webpage, search the web, or run FortiCNAPP security checks — all from a side panel without leaving your browser.
-Use TL;DR mode to quickly summarize any page in seconds.
+> Works with FortiCNAPP (Lacework), or any CNAPP that supports the Lacework CLI and LQL.
 
 ---
 

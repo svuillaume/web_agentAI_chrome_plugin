@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Fortinet, Inc.
+# Licensed under the Apache License, Version 2.0 — see LICENSE
 """
 Local proxy + static server for chatbox.html and the Chrome extension.
 
@@ -796,7 +798,17 @@ CRITICAL RULES — violations cause parse errors:
   EXAMPLE: for EC2 + volume encryption, use LW_CFG_AWS_EC2_VOLUMES alone (has RESOURCE_REGION + Encrypted + State)
   EXAMPLE: for S3 public access, use LW_CFG_AWS_S3_GET_PUBLIC_ACCESS_BLOCK alone (has all 4 block settings)
 - NEVER use CONTAINS() function — use LIKE '%value%' instead
+- NEVER use timespan(), interval(), NOW(), DATEADD(), DATE_SUB(), DATEDIFF(), or any SQL-style date functions — they do NOT exist in LQL
 - RLIKE: keyword form only — FIELD RLIKE 'regex'   (never RLIKE(field, 'regex'))
+
+TIME COMPARISONS — ONLY sec_to_timestamp(epoch) works:
+  sec_to_timestamp(n)  → converts a hardcoded Unix epoch number to a Timestamp for comparison
+  ALL other time functions (diff_days, current_timestamp_sec, now, timestamp_subtract, date_sub, ADD_DAYS, to_timestamp, current_timestamp) DO NOT EXIST or cause type errors in LQL — never use them
+  The ONLY valid pattern for "older than N days":  FIELD < sec_to_timestamp(<hardcoded_epoch>)
+  90 days before 2026-06-23 = epoch 1742860800
+  CORRECT:   LAST_USED_TIME IS NULL OR LAST_USED_TIME < sec_to_timestamp(1742860800)
+  WRONG:     diff_days(sec_to_timestamp(LAST_USED_TIME::Number), sec_to_timestamp(current_timestamp_sec())) >= 90
+  WRONG:     diff_days(LAST_USED_TIME, now()) > 90
 - Null: test with IS NULL / IS NOT NULL, never = null
 - IS JSON NULL: tests for JSON-level null (distinct from SQL null)
 - Keywords are case-insensitive; datasource names and field names are CASE-SENSITIVE
@@ -818,7 +830,18 @@ Standard compliance return columns:
 ━━ AWS CONFIG DATASOURCES ━━
 Identity & Access:
   LW_CFG_AWS_IAM_USERS                        — IAM users list
-  LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT  — credential report; top-level fields: USERNAME, MFA_ACTIVE, PASSWORD_ENABLED, PASSWORD_LAST_USED, ACCESS_KEY_1_ACTIVE, ACCESS_KEY_1_LAST_USED_DATE, ACCESS_KEY_2_ACTIVE
+  LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT  — credential report; ALL credential fields live under RESOURCE_CONFIG in lowercase:
+                                               RESOURCE_CONFIG:mfa_active = 'true'/'false'
+                                               RESOURCE_CONFIG:password_enabled = 'true'/'false'/'not_supported'
+                                               RESOURCE_CONFIG:password_last_used  (ISO timestamp or 'N/A')
+                                               RESOURCE_CONFIG:access_key_1_active = 'true'/'false'
+                                               RESOURCE_CONFIG:access_key_1_last_used_date  (ISO or 'N/A')
+                                               RESOURCE_CONFIG:access_key_1_last_rotated  (ISO or 'N/A')
+                                               RESOURCE_CONFIG:access_key_2_active = 'true'/'false'
+                                               RESOURCE_CONFIG:access_key_2_last_used_date  (ISO or 'N/A')
+                                               RESOURCE_CONFIG:access_key_2_last_rotated  (ISO or 'N/A')
+                                               Top-level (not under RESOURCE_CONFIG): ARN, ACCOUNT_ID, ACCOUNT_ALIAS, RESOURCE_REGION, RESOURCE_TYPE, SERVICE
+                                               NEVER use bare MFA_ACTIVE, PASSWORD_ENABLED etc. — they don't exist as top-level columns
   LW_CFG_AWS_IAM_USERS_LIST_ATTACHED_POLICIES — managed policies attached to each user
   LW_CFG_AWS_IAM_USERS_LIST_POLICIES          — inline policies per user
   LW_CFG_AWS_IAM_USERS_LIST_ACCESS_KEYS       — access key metadata per user
@@ -837,7 +860,7 @@ Compute — EC2:
   LW_CFG_AWS_EC2_VPCS                         — VPCs
   LW_CFG_AWS_EC2_SUBNETS                      — subnets
   LW_CFG_AWS_EC2_VOLUMES                      — EBS volumes; RESOURCE_CONFIG:Encrypted = 'true'/'false', RESOURCE_CONFIG:State::String, RESOURCE_CONFIG:VolumeType::String
-  LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT    — EBS default encryption per region; RESOURCE_CONFIG:ebsEncryptionByDefault = 'true'/'false'
+  LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT    — EBS default encryption per region; RESOURCE_CONFIG:EbsEncryptionByDefault = 'true'/'false'
   LW_CFG_AWS_EC2_NETWORK_ACLS                 — Network ACLs
   LW_CFG_AWS_EC2_VPC_FLOW_LOGS               — VPC flow log configs
   LW_CFG_AWS_EC2_INTERNET_GATEWAYS            — internet gateways
@@ -872,8 +895,8 @@ Storage:
 
 Encryption & Secrets:
   LW_CFG_AWS_KMS_KEYS                         — KMS key list
-  LW_CFG_AWS_KMS_KEYS_DESCRIBE_KEY            — KMS key details; RESOURCE_CONFIG:KeyState::String, KeyManager::String ('AWS' or 'CUSTOMER'), KeyUsage::String
-  LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS     — KMS rotation; RESOURCE_CONFIG:keyRotationEnabled = 'true'/'false'
+  LW_CFG_AWS_KMS_KEYS_DESCRIBE_KEY            — KMS key details; fields nested under KeyMetadata: RESOURCE_CONFIG:KeyMetadata.Enabled = 'true'/'false', RESOURCE_CONFIG:KeyMetadata.KeyManager = 'CUSTOMER'/'AWS', RESOURCE_CONFIG:KeyMetadata.KeySpec = 'SYMMETRIC_DEFAULT', RESOURCE_CONFIG:KeyMetadata.KeyUsage
+  LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS     — KMS rotation; RESOURCE_CONFIG:KeyRotationEnabled = 'true'/'false'
   LW_CFG_AWS_KMS_ALIASES                      — KMS aliases
   LW_CFG_AWS_SECRETSMANAGER_SECRETS           — Secrets Manager; top-level: NAME, DESCRIPTION, ROTATION_ENABLED, LAST_ROTATED_DATE
   LW_CFG_AWS_SSM_PARAMETERS                   — SSM Parameter Store; top-level: NAME, TYPE, DESCRIPTION (TYPE='SecureString' = encrypted)
@@ -920,7 +943,7 @@ Standard return: MID, HOSTNAME (via join or TAGS:Hostname::String), plus relevan
   LW_HA_DNS_REQUESTS  — DNS queries: MID, HOSTNAME, HOST_IP_ADDR, SRV_IP_ADDR, TTL
   LW_HA_CONNECTION_SUMMARY — network connections: MID, SRC_ENTITY_TYPE, SRC_ENTITY_ID, DST_ENTITY_TYPE, DST_ENTITY_ID, SRC_OUT_BYTES, DST_IN_BYTES, NUM_CONNS
 
-  CloudTrailRawEvents — raw CloudTrail audit events: EVENT_NAME, EVENT_SOURCE, EVENT_TIME, USER_IDENTITY(JSON), SOURCE_IP_ADDRESS, REQUEST_PARAMETERS(JSON), RESPONSE_ELEMENTS(JSON), ERROR_CODE
+  CloudTrailRawEvents — raw CloudTrail audit events: top-level scalars: EVENT_NAME, EVENT_SOURCE, EVENT_TIME, INSERT_ID, INSERT_TIME, ERROR_CODE; JSON blob: EVENT (access subfields as EVENT:requestParameters.xxx, EVENT:responseElements.xxx, EVENT:userIdentity.type, etc.)
 
 ━━ CLOUD ENTITLEMENT & ATTACK PATH ━━
   LW_APA_ATTACK_PATHS   — attack paths: PATH_ID, PROVIDER_TYPE, DOMAIN_ID, METRICS(JSON), PATH(JSON), TARGETS(JSON)
@@ -934,25 +957,55 @@ EC2 instances with unencrypted EBS volumes — use LW_CFG_AWS_EC2_VOLUMES (not E
 {"queryId":"Custom_AWS_EC2_UnencryptedVolumes","queryText":"{ source { LW_CFG_AWS_EC2_VOLUMES } filter { RESOURCE_CONFIG:Encrypted = 'false' AND RESOURCE_CONFIG:State = 'in-use' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'EBS volume is not encrypted' as COMPLIANCE_FAILURE_REASON } }"}
 
 Regions without EBS encryption-by-default:
-{"queryId":"Custom_AWS_EC2_NoEBSDefaultEncryption","queryText":"{ source { LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT } filter { RESOURCE_CONFIG:ebsEncryptionByDefault = 'false' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, RESOURCE_REGION, 'EBS encryption by default is disabled' as COMPLIANCE_FAILURE_REASON } }"}
+{"queryId":"Custom_AWS_EC2_NoEBSDefaultEncryption","queryText":"{ source { LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT } filter { RESOURCE_CONFIG:EbsEncryptionByDefault = 'false' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, RESOURCE_REGION, 'EBS encryption by default is disabled' as COMPLIANCE_FAILURE_REASON } }"}
 
 IAM users with password login but no MFA:
-{"queryId":"Custom_AWS_IAM_UsersNoMFA","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT } filter { MFA_ACTIVE = false AND PASSWORD_ENABLED = true } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, USERNAME, PASSWORD_LAST_USED, 'Password login without MFA' as COMPLIANCE_FAILURE_REASON } }"}
+{"queryId":"Custom_AWS_IAM_UsersNoMFA","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT u } filter { u.RESOURCE_CONFIG:mfa_active = 'false' AND u.RESOURCE_CONFIG:password_enabled = 'true' } return distinct { u.ACCOUNT_ALIAS, u.ACCOUNT_ID, u.ARN as RESOURCE_KEY, u.RESOURCE_REGION, u.RESOURCE_CONFIG:user::String as USERNAME, u.RESOURCE_CONFIG:password_last_used::String as PASSWORD_LAST_USED, 'Password login without MFA' as COMPLIANCE_FAILURE_REASON } }"}
 
-KMS customer keys without rotation:
-{"queryId":"Custom_AWS_KMS_NoRotation","queryText":"{ source { LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS } filter { RESOURCE_CONFIG:keyRotationEnabled = 'false' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, 'KMS key rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+KMS customer-managed keys without rotation (join describe_key to filter to CUSTOMER keys only):
+{"queryId":"Custom_AWS_KMS_CustomerKeyRotationDisabled","queryText":"{ source { LW_CFG_AWS_KMS_KEYS keys with( LW_CFG_AWS_KMS_KEYS_DESCRIBE_KEY key, LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS rotation ) } filter { key.RESOURCE_CONFIG:KeyMetadata.Enabled = 'true' and key.RESOURCE_CONFIG:KeyMetadata.KeyManager = 'CUSTOMER' and key.RESOURCE_CONFIG:KeyMetadata.KeySpec = 'SYMMETRIC_DEFAULT' and rotation.RESOURCE_CONFIG:KeyRotationEnabled = 'false' } return distinct { key.ACCOUNT_ALIAS, key.ACCOUNT_ID, key.ARN as RESOURCE_KEY, key.RESOURCE_REGION, key.RESOURCE_TYPE, key.SERVICE, 'KMS customer key rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
 
 Internet-exposed hosts:
 {"queryId":"Custom_AWS_Hosts_InternetExposed","queryText":"{ source { LW_HE_MACHINES } filter { TAGS:lw_InternetExposure::String = 'Yes' } return distinct { MID, TAGS:Hostname::String as HOSTNAME, TAGS:Account::String as ACCOUNT, TAGS:Region::String as REGION, OS } }"}
 
 SSH logins from external IPs on internet-exposed hosts (multi-source join):
-{"queryId":"Custom_AWS_Hosts_ExternalSSHLogins","queryText":"{ source { LW_HA_SSH_LOGINS s WITH LW_HE_MACHINES m ON m.MID = s.MID } filter { m.TAGS:lw_InternetExposure::String = 'Yes' AND s.IP_ADDR NOT LIKE '10.%' AND s.IP_ADDR NOT LIKE '192.168.%' } return distinct { s.MID, m.TAGS:Hostname::String as HOSTNAME, s.USERNAME, s.IP_ADDR, s.LOGIN_TIME, m.TAGS:Account::String as ACCOUNT } }"}
+{"queryId":"Custom_AWS_Hosts_ExternalSSHLogins","queryText":"{ source { LW_HA_SSH_LOGINS s WITH LW_HE_MACHINES m } filter { m.TAGS:lw_InternetExposure::String = 'Yes' AND s.IP_ADDR NOT LIKE '10.%' AND s.IP_ADDR NOT LIKE '192.168.%' } return distinct { s.MID, m.TAGS:Hostname::String as HOSTNAME, s.USERNAME, s.IP_ADDR, s.LOGIN_TIME, m.TAGS:Account::String as ACCOUNT } }"}
 
 Secrets Manager secrets without rotation:
 {"queryId":"Custom_AWS_SecretsManager_NoRotation","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } filter { ROTATION_ENABLED = false } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, LAST_ROTATED_DATE, 'Secret rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
 
 SSM SecureString parameters (potential unmanaged secrets):
 {"queryId":"Custom_AWS_SSM_SecureParameters","queryText":"{ source { LW_CFG_AWS_SSM_PARAMETERS } filter { TYPE = 'SecureString' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, DESCRIPTION } }"}
+
+Entitlements unused for 90+ days (epoch 1742860800 = 90 days before 2026-06-23):
+{"queryId":"Custom_AWS_IAM_UnusedPermissions90Days","queryText":"{ source { LW_CE_ENTITLEMENTS } filter { LAST_USED_TIME IS NULL OR LAST_USED_TIME < sec_to_timestamp(1742860800) } return distinct { PRINCIPAL_ID, SERVICE, ACTION, RESOURCE_TYPE, RESOURCE_ID, POLICY_ID, LAST_USED_TIME } }"}
+
+CloudTrail log file validation not enabled:
+{"queryId":"Custom_AWS_CloudTrail_NoLogValidation","queryText":"{ source { LW_CFG_AWS_CLOUDTRAIL } filter { RESOURCE_CONFIG:LogFileValidationEnabled = 'false' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'CloudTrail log file validation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+CloudTrail not encrypted with KMS:
+{"queryId":"Custom_AWS_CloudTrail_NotEncrypted","queryText":"{ source { LW_CFG_AWS_CLOUDTRAIL } filter { not value_exists(RESOURCE_CONFIG:KmsKeyId) } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'CloudTrail not encrypted with KMS' as COMPLIANCE_FAILURE_REASON } }"}
+
+S3 buckets without server-side encryption (join to encryption datasource):
+{"queryId":"Custom_AWS_S3_NoEncryption","queryText":"{ source { LW_CFG_AWS_S3 bucket with LW_CFG_AWS_S3_GET_BUCKET_ENCRYPTION encryption } filter { not value_exists(encryption.RESOURCE_CONFIG) } return distinct { bucket.ACCOUNT_ALIAS, bucket.ACCOUNT_ID, bucket.ARN as RESOURCE_KEY, bucket.RESOURCE_REGION, bucket.RESOURCE_TYPE, bucket.SERVICE, 'S3 bucket server-side encryption not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+VPCs without flow logging enabled (join to flow logs):
+{"queryId":"Custom_AWS_VPC_NoFlowLogs","queryText":"{ source { LW_CFG_AWS_EC2_VPCS vpc with LW_CFG_AWS_EC2_VPC_FLOW_LOGS log } filter { not value_exists(log.RESOURCE_CONFIG) or log.RESOURCE_CONFIG:FlowLogStatus <> 'ACTIVE' } return distinct { vpc.ACCOUNT_ALIAS, vpc.ACCOUNT_ID, vpc.ARN as RESOURCE_KEY, vpc.RESOURCE_REGION, vpc.RESOURCE_TYPE, vpc.SERVICE, case when not value_exists(log.RESOURCE_CONFIG) then 'VPC flow logging not enabled' else 'VPC flow logging not active' end as COMPLIANCE_FAILURE_REASON } }"}
+
+IAM users with two active access keys:
+{"queryId":"Custom_AWS_IAM_TwoActiveAccessKeys","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT } filter { RESOURCE_CONFIG:access_key_1_active = 'true' and RESOURCE_CONFIG:access_key_2_active = 'true' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'IAM user has two active access keys' as COMPLIANCE_FAILURE_REASON } }"}
+
+IAM users with inline policies (join users to inline policies):
+{"queryId":"Custom_AWS_IAM_InlinePolicy","queryText":"{ source { LW_CFG_AWS_IAM_USERS user with LW_CFG_AWS_IAM_USERS_LIST_POLICIES inline } filter { value_exists(inline.RESOURCE_CONFIG) } return distinct { user.ACCOUNT_ALIAS, user.ACCOUNT_ID, user.ARN as RESOURCE_KEY, user.RESOURCE_REGION, user.RESOURCE_TYPE, user.SERVICE, 'IAM user has inline policy' as COMPLIANCE_FAILURE_REASON } }"}
+
+Default security groups allowing traffic (array_to_rows for permission arrays):
+{"queryId":"Custom_AWS_EC2_DefaultSGAllowsTraffic","queryText":"{ source { LW_CFG_AWS_EC2_SECURITY_GROUPS a, array_to_rows(a.RESOURCE_CONFIG:IpPermissions) as (ip_permissions), array_to_rows(a.RESOURCE_CONFIG:IpPermissionsEgress) as (ip_permissions_egress) } filter { RESOURCE_CONFIG:GroupName = 'default' and (ip_permissions <> '[]' or ip_permissions_egress <> '[]') } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'Default security group allows traffic' as COMPLIANCE_FAILURE_REASON } }"}
+
+IAM entitlements unused for 90+ days (sec_to_timestamp with hardcoded epoch — 90 days before 2026-06-23):
+{"queryId":"Custom_AWS_IAM_UnusedPermissions90Days","queryText":"{ source { LW_CE_ENTITLEMENTS } filter { LAST_USED_TIME IS NULL OR LAST_USED_TIME < sec_to_timestamp(1742860800) } return distinct { PRINCIPAL_ID, SERVICE, ACTION, RESOURCE_TYPE, RESOURCE_ID, POLICY_ID, LAST_USED_TIME } }"}
+
+Access key 1 not rotated in 90 days (sec_to_timestamp with hardcoded epoch):
+{"queryId":"Custom_AWS_IAM_AccessKey1NotRotated90Days","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT } filter { RESOURCE_CONFIG:access_key_1_active = 'true' AND RESOURCE_CONFIG:access_key_1_last_rotated < sec_to_timestamp(1742860800) } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, RESOURCE_CONFIG:access_key_1_last_rotated::String as LAST_ROTATED, 'Access key 1 not rotated in 90 days' as COMPLIANCE_FAILURE_REASON } }"}
 
 ━━ OUTPUT FORMAT ━━
 Respond with ONLY a valid JSON object — no markdown, no code fences, no explanation:
@@ -978,19 +1031,19 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
                 'anthropic-version': '2023-06-01',
             },
         )
-        try:
-            resp      = urllib.request.urlopen(req, timeout=60)
+        def _call_claude(msgs):
+            body = json.dumps({'model': MODEL or 'claude-sonnet-4-5', 'max_tokens': 2048, 'messages': msgs}).encode()
+            r = urllib.request.Request(
+                UPSTREAM.rstrip('/') + '/v1/messages', data=body, method='POST',
+                headers={'Content-Type': 'application/json', 'x-api-key': VIRTUAL_KEY, 'anthropic-version': '2023-06-01'})
+            resp = urllib.request.urlopen(r, timeout=60)
             resp_data = json.loads(resp.read())
-
             if 'content' in resp_data and resp_data['content']:
-                # Anthropic: {"content": [{"type": "text", "text": "..."}]}
                 raw = resp_data['content'][0].get('text', '')
             elif 'choices' in resp_data and resp_data['choices']:
-                # OpenAI / Ollama: {"choices": [{"message": {"content": "..."}}]}
                 raw = resp_data['choices'][0].get('message', {}).get('content', '')
             else:
                 raise ValueError(f'Unrecognised response shape: {list(resp_data.keys())}')
-
             raw = raw.strip()
             if raw.startswith('```'):
                 raw = '\n'.join(raw.split('\n')[1:])
@@ -999,7 +1052,48 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
             brace = raw.find('{')
             if brace > 0:
                 raw = raw[brace:]
-            result = json.loads(raw)
+            return json.loads(raw)
+
+        def _validate_lql(query_text):
+            if not shutil.which('lacework'):
+                return None
+            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+            json.dump({'queryId': 'validate_tmp', 'queryText': query_text}, tmp)
+            tmp.close()
+            try:
+                result = subprocess.run(
+                    ['lacework', 'query', 'run', '--validate_only', '-f', tmp.name],
+                    capture_output=True, text=True, timeout=20)
+                if result.returncode == 0:
+                    return None
+                err = (result.stderr or result.stdout or '').strip()
+                for line in err.splitlines():
+                    if 'Error:' in line or 'Unable to' in line:
+                        return line.strip()
+                return err[-300:] if err else 'validation failed'
+            except Exception as e:
+                return str(e)
+            finally:
+                os.unlink(tmp.name)
+
+        try:
+            messages = [{'role': 'user', 'content': f'<system>\n{system_prompt}\n</system>\n\nObjective: {objective}'}]
+            result = _call_claude(messages)
+
+            # validate-then-fix loop — up to 3 attempts
+            MAX_RETRIES = 3
+            for attempt in range(MAX_RETRIES):
+                query_text = result.get('queryText', '')
+                if not query_text or result.get('queryId') == 'USE_CVE_TAB':
+                    break
+                err = _validate_lql(query_text)
+                if err is None:
+                    break
+                if attempt < MAX_RETRIES - 1:
+                    messages.append({'role': 'assistant', 'content': json.dumps(result)})
+                    messages.append({'role': 'user', 'content': f'That query failed validation with this error:\n{err}\n\nFix the LQL and return a corrected JSON object only.'})
+                    result = _call_claude(messages)
+
             self.send_json(200, json.dumps(result).encode())
         except urllib.error.HTTPError as e:
             err_body = e.read()
@@ -1029,12 +1123,14 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
 
         if shutil.which('lacework'):
             try:
-                cmd = ['lacework', 'query', 'execute',
-                       '--query-text', query_text,
+                tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.lql', delete=False)
+                tmp.write(query_text); tmp.close()
+                cmd = ['lacework', 'query', 'run', '-f', tmp.name,
                        '--start', start, '--end', end, '--json']
                 if LW_PROFILE:
                     cmd += ['--profile', LW_PROFILE]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                os.unlink(tmp.name)
                 if result.returncode == 0 and result.stdout.strip():
                     raw = json.loads(result.stdout)
                     rows = raw.get('data', raw) if isinstance(raw, dict) else raw
