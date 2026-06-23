@@ -63,6 +63,7 @@ def _fg_outbreaks_cached():
     import re as _re
     import io as _io
     from email.utils import parsedate_to_datetime
+    from defusedxml.ElementTree import parse as _safe_parse
 
     now = datetime.now(timezone.utc).timestamp()
     if now - _fg_cache['ts'] < 1800 and _fg_cache['items']:
@@ -77,12 +78,12 @@ def _fg_outbreaks_cached():
         with _ur.urlopen(req, timeout=10) as r:
             xml_bytes = r.read()
 
-        # defusedxml is a required dependency (requirements.txt) — no stdlib fallback
-        from defusedxml.ElementTree import fromstring as _safe_fromstring
-        root = _safe_fromstring(xml_bytes,
-                                forbid_dtd=True,
-                                forbid_entities=True,
-                                forbid_external=True)
+        root = _safe_parse(
+            _io.BytesIO(xml_bytes),
+            forbid_dtd=True,
+            forbid_entities=True,
+            forbid_external=True,
+        ).getroot()
         items = []
         for item in root.findall('.//item'):
             title   = (item.findtext('title')       or '').strip()
