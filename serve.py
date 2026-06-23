@@ -756,27 +756,72 @@ class Handler(http.server.BaseHTTPRequestHandler):
         system_prompt = """\
 You are a FortiCNAPP LQL expert. Generate a single valid LQL query for the given objective.
 
-Rules:
-- Use ONLY these valid datasources: LW_CFG_AWS_S3, LW_CFG_AWS_S3_GET_BUCKET_ENCRYPTION, LW_CFG_AWS_S3_GET_BUCKET_POLICY, LW_CFG_AWS_EC2_INSTANCES, LW_CFG_AWS_EC2_SECURITY_GROUPS, LW_CFG_AWS_EC2_VPCS, LW_CFG_AWS_CLOUDTRAIL, LW_CFG_AWS_IAM_USERS, LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT, LW_CFG_AWS_IAM_USERS_LIST_POLICIES, LW_CFG_AWS_KMS_KEYS, LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT, LW_HE_PROCESSES, LW_HE_MACHINES, LW_HE_IMAGES, LW_HE_CONTAINERS, CloudTrailRawEvents
+━━ IMPORTANT ROUTING RULE ━━
+If the objective involves CVE vulnerabilities (e.g. "hosts with CVE-xxx", "vulnerable hosts", "patch exposure"), do NOT generate an LQL query. Instead respond with ONLY this JSON:
+{"queryId": "USE_CVE_TAB", "queryText": "", "note": "CVE vulnerability data is not available in LQL. Use the CVE tab in this panel instead — it queries the FortiCNAPP Vulnerabilities API directly and shows hosts ranked by internet exposure and risk score."}
+
+━━ VALID DATASOURCES ━━
+Configuration (AWS):
+  LW_CFG_AWS_S3                              — S3 buckets (fields: ACCOUNT_ID, ACCOUNT_ALIAS, ARN, RESOURCE_REGION, RESOURCE_TAGS)
+  LW_CFG_AWS_S3_GET_BUCKET_ENCRYPTION        — S3 encryption settings
+  LW_CFG_AWS_S3_GET_BUCKET_POLICY            — S3 bucket policies
+  LW_CFG_AWS_EC2_INSTANCES                   — EC2 instances (tags field: RESOURCE_TAGS)
+  LW_CFG_AWS_EC2_SECURITY_GROUPS             — Security groups
+  LW_CFG_AWS_EC2_VPCS                        — VPCs
+  LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT   — EBS encryption default
+  LW_CFG_AWS_IAM_USERS                       — IAM users
+  LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT — IAM credential report (PASSWORD_ENABLED, MFA_ACTIVE, ACCESS_KEY_1_ACTIVE etc.)
+  LW_CFG_AWS_IAM_USERS_LIST_POLICIES         — IAM policies attached to users
+  LW_CFG_AWS_KMS_KEYS                        — KMS keys
+  LW_CFG_AWS_CLOUDTRAIL                      — CloudTrail trails
+  LW_CFG_AWS_SECRETSMANAGER_SECRETS          — AWS Secrets Manager secrets (fields: ARN, NAME, DESCRIPTION, ROTATION_ENABLED, LAST_ROTATED_DATE, RESOURCE_TAGS)
+  LW_CFG_AWS_SSM_PARAMETERS                  — SSM Parameter Store (TYPE='SecureString' means secret; fields: NAME, TYPE, DESCRIPTION, ARN)
+
+Host entities (agent-based, no ARN/SERVICE/RESOURCE_TYPE):
+  LW_HE_MACHINES    — hosts (fields: MID, HOSTNAME, TAGS, OS, ARCH, KERNEL_RELEASE)
+                      Internet exposure: TAGS:lw_InternetExposure::String = 'Yes'
+                      Cloud account:     TAGS:Account::String
+                      Region:            TAGS:Region::String
+  LW_HE_PROCESSES   — running processes (fields: MID, EXE_PATH, CMDLINE, USERNAME — NO HOSTNAME)
+  LW_HE_CONTAINERS  — containers (fields: MID, CONTAINER_NAME, CONTAINER_ID — NO HOSTNAME)
+  LW_HE_IMAGES      — container images (fields: MID, IMAGE_ID, REPO, TAG)
+  CloudTrailRawEvents — raw CloudTrail events (EVENT_NAME, EVENT_SOURCE, USER_IDENTITY etc.)
+
+━━ SYNTAX RULES ━━
 - NEVER use CONTAINS() — use LIKE '%value%' instead
-- RLIKE is keyword form only: FIELD RLIKE 'pattern' (not RLIKE(field, pattern))
-- LW_HE_PROCESSES fields: MID, EXE_PATH, CMDLINE, USERNAME — NO HOSTNAME field
-- LW_CFG_AWS_EC2_INSTANCES tags field is RESOURCE_TAGS — NOT TAGS
-- LW_HE_CONTAINERS fields: MID, CONTAINER_NAME, CONTAINER_ID only
+- RLIKE keyword form only: FIELD RLIKE 'pattern' (NOT RLIKE(field, pattern))
+- JSON path: FIELD:json.key — cast with ::String or ::Number
+- Expand arrays: array_to_rows(alias.FIELD:array) as (colname)
 - No multi-source joins unless using WITH ... ON '(default)' syntax
-- JSON path access: FIELD:json.key — cast with ::String, ::Number
-- Expand JSON arrays: array_to_rows(alias.FIELD:array) as (colname)
-- Standard compliance return columns: ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'reason' as COMPLIANCE_FAILURE_REASON
-- For LW_HE_* datasources omit ARN/SERVICE/RESOURCE_TYPE and return MID plus relevant fields
+- String comparison is case-sensitive
+
+━━ RETURN COLUMN CONVENTIONS ━━
+Config datasources: ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'reason text' as COMPLIANCE_FAILURE_REASON
+Host datasources:   MID, HOSTNAME (or TAGS:Hostname::String for LW_HE_MACHINES), plus relevant fields — omit ARN/SERVICE/RESOURCE_TYPE
 - queryId format: Custom_<Cloud>_<Service>_<PascalCaseDescription>
 
-Respond with ONLY a JSON object, no markdown, no explanation:
+━━ EXAMPLE QUERIES ━━
+
+List internet-exposed hosts:
+{"queryId":"Custom_AWS_Hosts_InternetExposed","queryText":"{ source { LW_HE_MACHINES } filter { TAGS:lw_InternetExposure::String = 'Yes' } return distinct { MID, TAGS:Hostname::String as HOSTNAME, TAGS:Account::String as ACCOUNT, TAGS:Region::String as REGION } }"}
+
+List all AWS Secrets Manager secrets:
+{"queryId":"Custom_AWS_SecretsManager_AllSecrets","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, ROTATION_ENABLED } }"}
+
+List SSM SecureString parameters (potential secrets):
+{"queryId":"Custom_AWS_SSM_SecureParameters","queryText":"{ source { LW_CFG_AWS_SSM_PARAMETERS } filter { TYPE = 'SecureString' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, DESCRIPTION } }"}
+
+List IAM users without MFA:
+{"queryId":"Custom_AWS_IAM_UsersNoMFA","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT } filter { MFA_ACTIVE = false AND PASSWORD_ENABLED = true } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, USERNAME, ARN as RESOURCE_KEY, PASSWORD_LAST_USED, 'MFA not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+━━ OUTPUT FORMAT ━━
+Respond with ONLY a JSON object — no markdown, no explanation:
 {"queryId": "Custom_...", "queryText": "{ source { ... } filter { ... } return distinct { ... } }"}"""
 
         messages = [{'role': 'user', 'content': f'Objective: {objective}'}]
         req_body = json.dumps({
-            'model': 'claude-haiku-4-5',
-            'max_tokens': 1024,
+            'model': 'claude-sonnet-4-6',
+            'max_tokens': 2048,
             'system': system_prompt,
             'messages': messages,
         }).encode()

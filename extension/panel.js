@@ -1297,9 +1297,21 @@ el('lql-gen-btn').addEventListener('click', async () => {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
+    // Server signals this belongs in the CVE tab, not LQL
+    if (data.queryId === 'USE_CVE_TAB') {
+      statusEl.textContent = '⚠ Use CVE tab';
+      statusEl.className   = 'err';
+      preview.style.display = '';
+      codeEl.textContent   = `-- ℹ  Not an LQL query\n--\n-- ${data.note || 'CVE vulnerability data lives in the CVE tab, not LQL.'}`;
+      _genQueryText = '';
+      el('lql-gen-results').innerHTML = `<div class="lql-row-note" style="padding:8px 2px;color:var(--dim)">${data.note || ''}</div>`;
+      el('lql-gen-run-status').textContent = '';
+      return;
+    }
+
     _genQueryText         = data.queryText || '';
     codeEl.textContent    = `-- ${data.queryId}\n\n${_genQueryText}`;
-    statusEl.textContent  = 'ready';
+    statusEl.textContent  = 'ready ✓';
     statusEl.className    = 'ok';
     preview.style.display = '';
     el('lql-gen-results').innerHTML = '';
