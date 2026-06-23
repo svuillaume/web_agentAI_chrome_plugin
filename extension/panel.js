@@ -74,6 +74,7 @@ const setStatus = (text, state = '') => {
 };
 
 // ── Storage ───────────────────────────────────────────────────────────────
+// session = auto-cleared on Chrome close (keeps credentials out of disk); local = survives restarts (safe for non-secret prefs)
 chrome.storage.session.get(['bf_url', 'bf_key', 'bf_key2'], ({ bf_url, bf_key, bf_key2 }) => {
   if (bf_url)  urlInput.value  = bf_url;
   if (bf_key)  keyInput.value  = bf_key;
@@ -256,7 +257,7 @@ function _appendToLog(node, cloneForAll) {
 // in History and Latest starts clean for the new feature context.
 function startNewSession(label) {
   if (!el('log-latest').children.length) return; // nothing to archive
-  history.length = 0; // reset AI conversation context
+  history.length = 0; // resets AI context so the new feature session starts with a clean slate
 
   // Add a session-separator in log-all (History) so the boundary is visible
   const sep = Object.assign(document.createElement('div'), { className: 'session-sep' });
@@ -329,7 +330,7 @@ function appendTurn(role, text = '') {
     };
 
     const copyBtn      = makeCopyBtn(body);
-    body._copyBtn      = copyBtn;
+    body._copyBtn      = copyBtn; // stored so setRendered can re-append it after replaceChildren wipes the DOM
     const bodyClone    = Object.assign(document.createElement('div'), { className: 'content' });
     const copyBtnClone = makeCopyBtn(bodyClone);
     bodyClone._copyBtn = copyBtnClone;
@@ -348,7 +349,7 @@ function appendTurn(role, text = '') {
     el('log-all').appendChild(turnClone);
     scrollLog();
 
-    body._allBody = bodyClone;
+    body._allBody = bodyClone; // dual-pane sync: setRendered writes to both Latest and History simultaneously
     return body;
   }
 }
@@ -464,7 +465,7 @@ el('tldr').addEventListener('click', () => withPage('tldr', async page => {
   history.push({ role: 'user',      content: 'TL;DR this page in 3-5 bullets. End each bullet with a markdown link to the most relevant source URL.' });
   appendTurn('system', `📄 TL;DR — "${page.title}"`);
   el('read-page').classList.add('active');
-  await send(true);
+  await send(true); // user turn already pushed above; silent avoids re-appending it
 }));
 
 // ── SSE stream parser ─────────────────────────────────────────────────────
@@ -518,7 +519,8 @@ async function readStream(res, bubble, cursor) {
 }
 
 // ── Send ──────────────────────────────────────────────────────────────────
-// silent = true: caller already pushed the user turn (e.g. TL;DR)
+// silent = true: caller already pushed the user turn into history and appended it to the log,
+//   so send() must skip both steps to avoid duplicating the visible message.
 async function send(silent = false) {
   if (busy) return;
 
@@ -910,7 +912,6 @@ function renderCodeSecResults(data, mode, ghCtx, scannedFiles) {
   el('codesec-panel').classList.remove('open');
   const body = document.createElement('div');
   body.className = 'cs-result-body';
-  if (!el('log-latest')) { console.error('log-latest missing'); return; }
 
   if (mode === 'sbom') {
     if (data.error) {
@@ -1112,7 +1113,6 @@ async function runCodeSec(mode) {
     try {
       renderCodeSecResults(data, mode, ghCtx, files);
     } catch (renderErr) {
-      console.error('renderCodeSecResults threw:', renderErr);
       appendTurn('system', `CodeSec render error: ${renderErr.message}`);
     }
 
@@ -1305,7 +1305,7 @@ el('cve-analyse').addEventListener('click', () => {
   const prompt = buildCveAnalysisPrompt(_lastCveData);
   history.push({ role: 'user', content: prompt });
   appendTurn('user', `Analyse attack surface for ${_lastCveData.cveId}`);
-  send(true);
+  send(true); // user turn already pushed above; silent avoids re-appending it
 });
 
 const EXEC_REPORT_TEMPLATE = `
@@ -1500,11 +1500,11 @@ async function runCveSearch() {
     renderCveResults(data, resultsEl);
     appendResultCard('🔬', `CVE: ${cveId} — ${data.total_affected} hosts (${exp} exposed)`, resultsEl);
 
-    // Auto-trigger executive analysis
+    // Auto-trigger executive analysis without waiting for an explicit user message
     const prompt = buildCveAnalysisPrompt(data);
     history.push({ role: 'user', content: prompt });
     appendTurn('user', `Analyse attack surface for ${cveId}`);
-    send(true);
+    send(true); // user turn already appended above; silent skips the duplicate
   } catch (e) {
     statusEl.textContent = `✗ ${e.message}`;
     statusEl.className   = 'err';
@@ -1719,7 +1719,7 @@ el('lql-run').addEventListener('click', async () => {
       role: 'user',
       content: `Security finding data from LQL query "${query.id}" — ${count} rows:\n\n${sample}\n\n${EXEC_REPORT_TEMPLATE}`,
     });
-    send(true);
+    send(true); // auto-triggers executive analysis; user turn already pushed above
   } catch (e) {
     statusEl.textContent = `✗ ${e.message}`;
     statusEl.className   = 'err';
@@ -1846,7 +1846,7 @@ el('lql-gen-run').addEventListener('click', async () => {
       role: 'user',
       content: `Security finding data from LQL query "${label}" — ${count} rows:\n\n${sample}\n\n${EXEC_REPORT_TEMPLATE}`,
     });
-    send(true);
+    send(true); // auto-triggers executive analysis; user turn already pushed above
   } catch (e) {
     statusEl.textContent = `✗ ${e.message}`;
     statusEl.className   = 'err';

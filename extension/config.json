@@ -1,5 +1,0 @@
-{
-  "_note":       "Fallback only — when serve.py is running, creds are loaded from .env automatically.",
-  "gateway_url": "https://bifrost.fabriclab.ca/anthropic",
-  "api_key":     "sk-bf-264c3ea2-4acc-4097-ba45-96488ddcca53"
-}

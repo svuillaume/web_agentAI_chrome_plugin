@@ -1,197 +1,194 @@
 # Web AI Agent — Chrome Extension
 
-An AI-powered security assistant that lives in your Chrome browser. Ask questions, search the web, and run FortiCNAPP cloud security checks — all from a side panel without leaving the page you're on.
+An AI security assistant built into Chrome. Ask questions about any webpage, search the web, and run FortiCNAPP cloud security checks — all from a side panel without leaving your browser.
 
 ---
 
-## What can it do?
+## What it does
 
-**Chat & research (works on any webpage):**
-- Ask the AI anything — it can also search the web automatically when needed
-- **Read** — loads the page you're viewing so you can ask questions about it
-- **TL;DR** — gives you a 3-bullet plain-English summary of any page
+**Chat & research** — works on any webpage:
+- Ask the AI anything — it automatically searches the web when needed
+- **Read** — loads the page you're on so you can ask questions about it
+- **TL;DR** — gives a plain-English summary of any page in seconds
+- **FortiGuard** — opens the FortiGuard Labs threat intelligence feed; the button flashes red when there are active outbreak alerts
 
-**FortiCNAPP security tools** (click the 🔰 FortiCNAPP button in the toolbar):
+**FortiCNAPP security tools** — click the 🔰 FortiCNAPP button:
 
-| Button | What it does |
+| Tool | What it does |
 |---|---|
-| 🛡 Scan | Checks code on the page you're viewing for vulnerabilities and security issues |
-| 📋 Compliance | Downloads a compliance PDF report (CIS, NIST, PCI-DSS, SOC 2, HIPAA, and 50+ more) |
-| 🔍 LQL | Runs pre-built security queries against your FortiCNAPP account |
-| ✨ LQL Generate | Describe what you want to find in plain English — it writes and runs the query for you |
-| 🚨 CVE | Look up any CVE (e.g. Log4Shell) and see which of your servers and containers are exposed |
+| 🛡 **Scan Code** | Scans code on the current page or a GitHub repo for vulnerabilities and secrets |
+| 📋 **Compliance Report** | Downloads a compliance PDF (CIS, NIST, PCI-DSS, SOC 2, HIPAA, and 50+ more) |
+| 📊 **Advanced Analytics** | Runs saved LQL security queries against your FortiCNAPP account — or describe what you want in plain English and it writes the query for you |
+| 🔬 **Attack Threat Surface** | Look up any CVE and see exactly which servers and containers in your environment are exposed |
+| 💬 **Community Feed** | Opens the FortiCNAPP community blog and articles |
 
-> If a button appears greyed out, hover over it — the tooltip will tell you exactly what's needed to enable it.
+> Greyed-out buttons have a tooltip explaining what's needed to enable them.
 
 ---
 
-## What you need before you start
+## Before you start — what you need
 
-| What | Why you need it |
+| What | Where to get it |
 |---|---|
-| **Google Chrome** | The extension runs inside Chrome |
-| **Python 3** | Runs the small local server that powers the security tools |
-| **AI Gateway URL + key** | Connects the chat to Claude (provided by your IT/Fortinet team) |
-| **FortiCNAPP API key** | Lets the security tools connect to your FortiCNAPP account |
+| **Google Chrome** | [chrome.google.com](https://chrome.google.com) |
+| **Python 3** | [python.org](https://python.org) — already installed on most Macs |
+| **AI Gateway URL + key** | Provided by your IT team or Fortinet contact (starts with `sk-bf-…`) |
+| **FortiCNAPP credentials** | Found in FortiCNAPP under **Settings → API Keys** |
 
-You don't need Docker. You don't need to be a developer.
+You do not need Docker. You do not need to be a developer.
 
 ---
 
-## Setup — Step by step
+## Setup — 4 steps
 
 ### Step 1 — Download the extension
 
-Clone or download this repository to a folder on your computer.  
+Download or clone this repository to a folder on your computer.
 If you received a `.zip` file, unzip it first.
+
+---
 
 ### Step 2 — Run the setup script
 
-Open a **Terminal** (macOS) or **PowerShell** (Windows) in the folder you just downloaded.
+Open **Terminal** (macOS/Linux) or **PowerShell** (Windows) in the folder you just downloaded, then run:
 
-**On macOS or Linux — type this and press Enter:**
+**macOS / Linux:**
 ```
 ./setup.sh
 ```
 
-**On Windows — type this and press Enter:**
+**Windows:**
 ```
 .\setup.ps1
 ```
 
-The script will walk you through everything interactively:
+The script asks you 3 questions:
 
-1. **Gateway URL** — paste the AI Gateway URL your IT team gave you
+1. **Gateway URL** — paste the URL your IT team gave you (e.g. `https://bifrost.yourcompany.com/anthropic`)
 2. **Gateway key** — paste your API key (starts with `sk-bf-…`)
-3. **FortiCNAPP credentials** — the script will ask if you want to set these up now
-4. The server starts automatically in the background
+3. **FortiCNAPP credentials** — answer **y** to set these up now (you'll need your account name, API Key, and API Secret from FortiCNAPP → Settings → API Keys)
 
-If you see a ✔ at the end, you're ready.
+When you see ✔ at the end, the server is running and you're ready for Step 3.
 
-### Step 3 — Load the Chrome extension
+---
 
-1. Open Chrome and go to: `chrome://extensions`
-2. Turn on **Developer mode** (toggle in the top-right corner)
+### Step 3 — Load the extension in Chrome
+
+1. Open Chrome and go to: **`chrome://extensions`**
+2. Turn on **Developer mode** — toggle in the top-right corner
 3. Click **Load unpacked**
-4. Select the `extension` folder inside the folder you downloaded
-5. The Web AI Agent icon will appear in your Chrome toolbar
-
-### Step 4 — Open the side panel
-
-Click the Web AI Agent icon in the Chrome toolbar.  
-The side panel opens. Type a question to get started.
+4. Select the **`extension`** folder inside the folder you downloaded
+5. The Web AI Agent icon (🔰) appears in your Chrome toolbar
 
 ---
 
-## FortiCNAPP credentials — two ways to set them up
+### Step 4 — Start using it
 
-### Option A — Using the setup script (easiest)
+Click the 🔰 icon in the Chrome toolbar — the side panel opens.
+Type anything to start chatting, or use the toolbar buttons.
 
-When you run `setup.sh` or `setup.ps1`, it will ask if you want to configure FortiCNAPP. Answer **y** and follow the prompts. You'll need:
-
-- Your **FortiCNAPP account name** (e.g. `your-company`)
-- Your **API Key** and **API Secret** — find these in FortiCNAPP under **Settings → API Keys**
-
-### Option B — Paste credentials into the config file
-
-Open the `.env` file in the folder (any text editor works) and fill in these three lines:
-
-```
-LW_ACCOUNT=your-account-name
-LW_API_KEY=your-api-key-here
-LW_API_SECRET=your-api-secret-here
-```
-
-Save the file and restart the server (re-run `setup.sh` or `setup.ps1`).
+✅ **Check:** The status dot in the top-right of the panel should be green. If it's grey, the server isn't running — go back to Step 2.
 
 ---
 
-## Stopping and restarting the server
+## Stopping and restarting
 
-The server runs quietly in the background while you use Chrome.
+The server runs quietly in the background.
 
-**To stop it:**
+**To stop:**
 - macOS/Linux: `kill $(cat .serve.pid)`
 - Windows: `Stop-Process -Id (Get-Content .serve.pid)`
 
-**To restart it:**  
-Just run `./setup.sh` (or `.\setup.ps1`) again.
+**To restart:** run `./setup.sh` (or `.\setup.ps1`) again.
 
 ---
 
 ## Troubleshooting
 
-**The side panel says "not connected" or buttons are greyed out**
-- Make sure the server is running — open `http://localhost:45321` in Chrome; you should see a chat page
-- If it's not running, open Terminal / PowerShell in the extension folder and run `./setup.sh` again
+**Panel shows "not connected" or status dot is grey**
+→ The server isn't running. Open Terminal in the extension folder and run `./setup.sh` again.
+→ Check it's running: open `http://localhost:45321` in Chrome — you should see a chat page.
 
-**"Cannot scan a browser page" when clicking Scan**
-- Navigate to a real webpage first (not a Chrome settings page), then click Scan
+**"Cannot scan a Github web page" when clicking Scan Code**
+→ Navigate to a GitHub repository page first, then click Scan Code.
 
 **Scan runs but finds nothing**
-- The page needs to have visible code on it (e.g. a GitHub repository page, a code documentation page)
-- On a GitHub repo page, it automatically fetches the actual source files
+→ The page needs visible code — GitHub repository pages work best. On a GitHub repo, it fetches the actual source files automatically.
 
 **LQL / CVE / Compliance buttons are greyed out**
-- Your FortiCNAPP credentials aren't set up yet — see the credentials section above
+→ Your FortiCNAPP credentials aren't configured. Run `./setup.sh` and answer **y** when asked about FortiCNAPP.
 
-**🛡 Scan is greyed out but other buttons work**
-- The lacework CLI isn't installed on your machine — run `./setup.sh` and answer **y** when asked to install it
+**Scan Code is greyed out but other buttons work**
+→ The lacework CLI is not installed. Run `./setup.sh` and answer **y** when asked to install it.
+
+**FortiGuard button is flashing red**
+→ There is an active outbreak alert from the last 5 days. Click the button to open FortiGuard Labs — the flashing stops once you've checked it.
 
 ---
 
 ## Privacy & security
 
-Your API keys and credentials are never sent anywhere except the services they belong to:
+Your keys and credentials stay on your machine — nothing is stored in the cloud.
 
 | Data | Where it's stored | When it's cleared |
 |---|---|---|
-| Gateway URL + API key | Your browser's memory only | When you close Chrome |
-| Chat history | Your browser's memory only | When you close the side panel |
-| Page content you read | Your browser's memory only | Never saved to disk |
-| FortiCNAPP credentials | Your machine only (`~/.lacework.toml` or `.env`) | You control this |
+| Gateway URL + API key | Browser memory only | When you close Chrome |
+| Chat history | Browser memory only | When you close the side panel |
+| Page content you read | Browser memory only | Never written to disk |
+| FortiCNAPP credentials | Your machine only (`~/.lacework.toml`) | You control this |
 
-The small server (`serve.py`) only listens on your own computer (`localhost`) — nothing is accessible from outside your machine.
+The local server (`serve.py`) only listens on `localhost` — nothing is reachable from outside your machine.
 
 ---
 
-## For technical users
+## Technical reference
 
 <details>
-<summary>Manual start, configuration keys, API endpoints</summary>
+<summary>Manual configuration, environment variables, API endpoints</summary>
 
-### Manual start
+### Manual start (no setup script)
 
 ```bash
-cp .env.tpl .env        # fill in ANTHROPIC_BASE_URL and BIFROST_VIRTUAL_KEY
+cp .env.tpl .env        # copy the template
+# edit .env and fill in ANTHROPIC_BASE_URL and BIFROST_VIRTUAL_KEY
 python3 serve.py        # starts on http://localhost:45321
 ```
 
-### Configuration keys (`.env`)
+### Environment variables (`.env`)
 
-| Key | Description |
+| Variable | Description |
 |---|---|
-| `ANTHROPIC_BASE_URL` | AI gateway endpoint |
+| `ANTHROPIC_BASE_URL` | AI gateway endpoint URL |
 | `BIFROST_VIRTUAL_KEY` | Gateway virtual key (`sk-bf-…`) |
-| `ANTHROPIC_DEFAULT_MODEL` | Model for chat + LQL Generate (default: `claude-haiku-4-5`) |
-| `LQL_QUERIES_DIR` | Path to `.yaml` LQL query files |
-| `LW_ACCOUNT` | FortiCNAPP account name (alternative to `~/.lacework.toml`) |
-| `LW_API_KEY` | FortiCNAPP API key |
-| `LW_API_SECRET` | FortiCNAPP API secret |
+| `ANTHROPIC_DEFAULT_MODEL` | Model used for chat and LQL Generate (default: `claude-haiku-4-5`) |
+| `LQL_QUERIES_DIR` | Path to folder containing `.yaml` LQL query files |
 
-### Backend endpoints
+FortiCNAPP credentials come from `~/.lacework.toml` (created by `lacework configure`).
 
-| Method | Path | Purpose |
+### Backend API endpoints (served on `localhost:45321`)
+
+| Method | Path | Description |
 |---|---|---|
-| GET | `/config` | Gateway URL, key, `lw_ready`, `lw_cli` flags |
-| POST | `/proxy/v1/*` | Proxy to AI gateway (streaming) |
-| POST | `/codesec` | SCA + SAST scan — requires lacework CLI |
-| POST | `/sbom` | CycloneDX SBOM — requires lacework CLI |
-| POST | `/compliance` | Generate compliance PDF |
-| GET | `/compliance/list` | List available frameworks |
+| GET | `/config` | Returns gateway URL, key, and feature-availability flags |
+| POST | `/proxy/v1/*` | Proxies streaming requests to the AI gateway |
+| POST | `/codesec` | SCA + SAST scan via lacework CLI |
+| POST | `/sbom` | CycloneDX SBOM via lacework CLI |
+| POST | `/compliance` | Generate compliance PDF report |
+| GET | `/compliance/list` | List available compliance frameworks |
 | GET | `/lql/queries` | List saved `.yaml` LQL query files |
-| POST | `/lql/run` | Execute LQL query |
-| POST | `/lql/cve` | CVE attack surface: hosts + containers |
-| POST | `/lql/generate` | Plain-English → LQL via Claude |
+| POST | `/lql/run` | Execute an LQL query against FortiCNAPP |
+| POST | `/lql/cve` | CVE attack surface: affected hosts and containers |
+| POST | `/lql/generate` | Convert plain-English objective to LQL via Claude |
+| GET | `/fortiguard/outbreaks` | Proxies FortiGuard outbreak alert RSS feed |
+
+### Docker (self-contained, for teams)
+
+```bash
+docker compose up -d          # first run
+docker compose up --build -d  # after changes to serve.py
+docker compose down
+```
+
+Requires `~/claude_cnapp/lql/lql_queries` for LQL files and `~/.lacework.toml` for credentials — both mounted read-only into the container.
 
 </details>
