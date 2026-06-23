@@ -1562,11 +1562,17 @@ const EXEC_REPORT_TEMPLATE = `Write the full security report using the structure
 
 function buildCveAnalysisPrompt(d, fgOutbreaks) {
   const fixVer = d.hosts.find(h => h.fix_available)?.fixed_version || 'latest';
-  const fgSearchUrl = `https://www.fortiguard.com/search?q=${encodeURIComponent(d.cveId)}`;
+  const fgSearchUrl  = `https://www.fortiguard.com/search?q=${encodeURIComponent(d.cveId)}`;
+  const nvdUrl       = `https://nvd.nist.gov/vuln/detail/${d.cveId}`;
+
   const lines = [
     `Security finding data for ${d.cveId}:`,
-    `FortiGuard threat intelligence: ${fgSearchUrl}`,
-    `Scope: ${d.total_affected} hosts affected, ${d.internet_exposed} internet-exposed, ${d.fixable} fixable (last ${d.period_days} days).`,
+    ``,
+    `Threat Intelligence References:`,
+    `  FortiGuard search: ${fgSearchUrl}`,
+    `  NVD detail:        ${nvdUrl}`,
+    ``,
+    `FortiCNAPP Exposure Scope: ${d.total_affected} hosts affected, ${d.internet_exposed} internet-exposed, ${d.fixable} fixable (last ${d.period_days} days).`,
     ``,
   ];
 
@@ -1582,15 +1588,27 @@ function buildCveAnalysisPrompt(d, fgOutbreaks) {
   });
 
   if (fgOutbreaks && fgOutbreaks.length) {
-    lines.push(``, `--- FortiGuard Threat Intelligence (Outbreak Alerts) ---`);
+    lines.push(``, `--- FortiGuard Outbreak Alerts (correlated to ${d.cveId}) ---`);
     fgOutbreaks.forEach(o => {
       lines.push(`Outbreak: ${o.title}`);
-      if (o.risk)    lines.push(`  Risk: ${o.risk}`);
+      if (o.risk)    lines.push(`  Risk:      ${o.risk}`);
       if (o.pubDate) lines.push(`  Published: ${o.pubDate.slice(0, 10)}`);
-      if (o.summary) lines.push(`  Summary: ${o.summary}`);
-      if (o.link)    lines.push(`  Reference: ${o.link}`);
+      if (o.summary) lines.push(`  Summary:   ${o.summary}`);
+      if (o.link)    lines.push(`  URL:       ${o.link}`);
     });
-    lines.push(``, `Use the FortiGuard outbreak intel above to enrich the threat context, MITRE TTPs, and remediation guidance in the report.`);
+    lines.push(
+      ``,
+      `IMPORTANT: Your report MUST include a "FortiGuard Threat Correlation" section that:`,
+      `  1. Summarises the outbreak alert(s) above and links to each URL`,
+      `  2. Maps MITRE ATT&CK techniques from the outbreak intel to the affected hosts`,
+      `  3. Explains how the FortiGuard findings change the priority of this CVE`,
+    );
+  } else {
+    lines.push(
+      ``,
+      `No active FortiGuard outbreak alert found for ${d.cveId}.`,
+      `Include the FortiGuard search link (${fgSearchUrl}) and NVD link in the References section of the report.`,
+    );
   }
 
   lines.push(``, EXEC_REPORT_TEMPLATE);
@@ -1638,7 +1656,10 @@ async function runCveSearch() {
       noResultEl.textContent = data.note || `No hosts found for ${cveId} in the selected window.`;
       const fgSearchNoResult = document.createElement('div');
       fgSearchNoResult.className = 'fg-search-link';
-      fgSearchNoResult.innerHTML = `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">Search FortiGuard for ${cveId}</a>`;
+      fgSearchNoResult.innerHTML =
+        `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">FortiGuard: ${cveId}</a>` +
+        `&nbsp;&nbsp;|&nbsp;&nbsp;` +
+        `<a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}" target="_blank">NVD: ${cveId}</a>`;
       noResultEl.appendChild(fgSearchNoResult);
       if (fgOutbreaks.length) {
         const fgLink = document.createElement('a');
@@ -1664,10 +1685,13 @@ async function runCveSearch() {
     resultsEl.className = 'cve-result-body';
     renderCveResults(data, resultsEl);
 
-    // FortiGuard search link — always present
+    // FortiGuard + NVD reference links — always present
     const fgSearchEl = document.createElement('div');
     fgSearchEl.className = 'fg-search-link';
-    fgSearchEl.innerHTML = `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">Search FortiGuard for ${cveId}</a>`;
+    fgSearchEl.innerHTML =
+      `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">FortiGuard: ${cveId}</a>` +
+      `&nbsp;&nbsp;|&nbsp;&nbsp;` +
+      `<a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}" target="_blank">NVD: ${cveId}</a>`;
     resultsEl.appendChild(fgSearchEl);
 
     // Append FortiGuard outbreak intel to the card if available
