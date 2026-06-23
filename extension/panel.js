@@ -7,15 +7,12 @@ const SYSTEM_PROMPT  = 'Be concise. No filler phrases.';
 const ROLE_LABELS    = { user: 'you', ai: 'ai', system: 'sys' };
 
 // ── Gateway profiles ──────────────────────────────────────────────────────
-// Each profile describes how to build the Authorization/API-key headers
-// for the /v1/messages endpoint of that gateway.
 const GATEWAYS = {
   bifrost:  {
-    label:       '⚡ Bifrost',
-    urlHint:     'https://bifrost.xxx',
-    keyHint:     'sk-bf-…',
-    keyLabel:    'key',
-    // Headers: x-api-key + anthropic-version (Anthropic passthrough style)
+    label:    '⚡ Bifrost',
+    urlHint:  'https://bifrost.xxx',
+    keyHint:  'sk-bf-…',
+    keyLabel: 'key',
     headers: key => ({
       'Content-Type':      'application/json',
       'x-api-key':         key,
@@ -23,23 +20,21 @@ const GATEWAYS = {
     }),
   },
   portkey:  {
-    label:       'Portkey',
-    urlHint:     'https://api.portkey.ai',
-    keyHint:     'pk-…',
-    keyLabel:    'key',
-    // Portkey uses x-portkey-api-key; virtual-key is optional (set in Portkey config)
+    label:    'Portkey',
+    urlHint:  'https://api.portkey.ai',
+    keyHint:  'pk-…',
+    keyLabel: 'key',
     headers: key => ({
-      'Content-Type':         'application/json',
-      'x-portkey-api-key':    key,
-      'anthropic-version':    '2023-06-01',
+      'Content-Type':      'application/json',
+      'x-portkey-api-key': key,
+      'anthropic-version': '2023-06-01',
     }),
   },
   litellm:  {
-    label:       'LiteLLM',
-    urlHint:     'https://litellm.xxx',
-    keyHint:     'sk-…',
-    keyLabel:    'key',
-    // LiteLLM proxy uses Bearer token
+    label:    'LiteLLM',
+    urlHint:  'https://litellm.xxx',
+    keyHint:  'sk-…',
+    keyLabel: 'key',
     headers: key => ({
       'Content-Type':      'application/json',
       'Authorization':     `Bearer ${key}`,
@@ -47,12 +42,11 @@ const GATEWAYS = {
     }),
   },
   helicone: {
-    label:       'Helicone',
-    urlHint:     'https://anthropic.helicone.ai',
-    keyHint:     'sk-ant-… (Anthropic key)',
-    keyLabel:    'ant-key',
-    // Helicone: pass Anthropic key as x-api-key, Helicone auth as separate header
-    // helicone-auth stored in search-input field (reused as secondary-key field)
+    label:    'Helicone',
+    urlHint:  'https://anthropic.helicone.ai',
+    keyHint:  'sk-ant-… (Anthropic key)',
+    keyLabel: 'ant-key',
+    // searchInput holds the Helicone auth key (secondary field, reused)
     headers: (key, heliconeKey) => ({
       'Content-Type':      'application/json',
       'x-api-key':         key,
@@ -80,8 +74,8 @@ const setStatus = (text, state = '') => {
 };
 
 // ── Storage ───────────────────────────────────────────────────────────────
-// Sensitive values (URL, key) → session storage: RAM only, cleared on Chrome close.
-// Model preference            → local storage:   persists, not sensitive.
+// URL + key → session storage (RAM only, cleared on Chrome close).
+// Model/gateway → local storage (persists, not sensitive).
 chrome.storage.session.get(['bf_url', 'bf_key', 'bf_search'], ({ bf_url, bf_key, bf_search }) => {
   if (bf_url)    urlInput.value    = bf_url;
   if (bf_key)    keyInput.value    = bf_key;
@@ -110,8 +104,6 @@ el('gateway').addEventListener('change', () => {
 });
 
 async function autoFillFromConfig() {
-  // Try serve.py /config first (single source of truth: .env)
-  // Fall back to bundled config.json for offline/dev use
   let cfg = null;
   try {
     const res = await fetch('http://localhost:8765/config');
@@ -122,7 +114,7 @@ async function autoFillFromConfig() {
     try {
       const res = await fetch(chrome.runtime.getURL('config.json'));
       if (res.ok) cfg = await res.json();
-    } catch { /* no config.json either */ }
+    } catch { /* no bundled config.json */ }
   }
 
   if (!cfg) return;
@@ -135,10 +127,9 @@ async function autoFillFromConfig() {
   };
   fill(urlInput,    'gateway_url', 'bf_url');
   fill(keyInput,    'api_key',     'bf_key');
-  fill(searchInput, 'searxng_url', 'bf_search');
+  fill(searchInput, 'searxng_url', 'bf_search'); // reused as Helicone secondary key
   if (cfg.gateway_url || cfg.api_key) setStatus('config loaded', 'ok');
 
-  // Grey out FortiCNAPP security tools if ~/.lacework.toml credentials are missing
   const lwReady = cfg.lw_ready === true;
   const LW_CHIPS = ['codesec', 'compliance', 'lql', 'cve-btn'];
   LW_CHIPS.forEach(id => {
@@ -179,11 +170,6 @@ keyInput.addEventListener('change',    () => saveSession('bf_key',    keyInput))
 searchInput.addEventListener('change', () => saveSession('bf_search', searchInput));
 el('model').addEventListener('change', () => chrome.storage.local.set({ bf_model: el('model').value }));
 
-// ── Web search ────────────────────────────────────────────────────────────
-// Uses Anthropic's native web_search_20260209 server-side tool — no local
-// SearXNG instance required. Search happens during inference on Anthropic's
-// infrastructure; the extension just declares the tool and streams the result.
-
 // ── Markdown renderer ─────────────────────────────────────────────────────
 // Escape FIRST, then transform — model output can never inject executable HTML.
 function renderMarkdown(text) {
@@ -207,7 +193,7 @@ function renderMarkdown(text) {
   }).join('');
 }
 
-// Inert <template> parse — injected scripts never execute
+// Inert <template> parse: injected scripts never execute
 function setRendered(node, html) {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
@@ -305,8 +291,7 @@ el('tldr').addEventListener('click', () => withPage('tldr', async page => {
 async function readStream(res, bubble, cursor) {
   const reader = res.body.getReader();
   const dec    = new TextDecoder();
-  let buf = '', out = '', inputTk = 0, outputTk = 0;
-  let searchMarker = null;
+  let buf = '', out = '', inputTk = 0, outputTk = 0, searchMarker = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -326,24 +311,22 @@ async function readStream(res, bubble, cursor) {
       if (ev.type === 'message_delta')
         outputTk = ev.usage?.output_tokens ?? outputTk;
 
-      // Server-side web_search tool: show a "searching…" indicator in the bubble
+      // Show [searching…] while the server-side web_search tool runs
       if (ev.type === 'content_block_start' && ev.content_block?.type === 'server_tool_use'
           && ev.content_block?.name === 'web_search') {
-        searchMarker = document.createElement('span');
-        searchMarker.className = 'search-marker';
-        searchMarker.textContent = ' [searching…] ';
+        searchMarker = Object.assign(document.createElement('span'), {
+          className: 'search-marker', textContent: ' [searching…] ',
+        });
         bubble.appendChild(searchMarker);
         bubble.appendChild(cursor);
         setStatus('searching…', 'busy');
       }
-      // Remove the "searching…" marker once the tool result arrives
       if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_result') {
-        if (searchMarker) { searchMarker.remove(); searchMarker = null; }
+        searchMarker?.remove(); searchMarker = null;
         setStatus('streaming…', 'busy');
       }
-
       if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
-        if (searchMarker) { searchMarker.remove(); searchMarker = null; }
+        searchMarker?.remove(); searchMarker = null;
         out += ev.delta.text;
         setRendered(bubble, renderMarkdown(out));
         bubble.appendChild(cursor);
@@ -355,58 +338,52 @@ async function readStream(res, bubble, cursor) {
 }
 
 // ── Send ──────────────────────────────────────────────────────────────────
-// silent = true: caller already pushed the user turn (TL;DR path)
+// silent = true: caller already pushed the user turn (e.g. TL;DR)
 async function send(silent = false) {
   if (busy) return;
 
-  const baseUrl   = urlInput.value.trim().replace(/\/+$/, '');
-  const key       = keyInput.value.trim();
+  const baseUrl = urlInput.value.trim().replace(/\/+$/, '');
+  const key     = keyInput.value.trim();
   if (!baseUrl) { appendTurn('system', 'No endpoint URL — enter the gateway base URL above.'); return; }
-  if (!key)     { appendTurn('system', 'No API key — enter your sk-bf-… key above.');          return; }
+  if (!key)     { appendTurn('system', 'No API key — enter your key above.'); return; }
 
   if (!silent) {
     const text = el('prompt').value.trim();
     if (!text) return;
     history.push({ role: 'user', content: text });
     appendTurn('user', text);
-    el('prompt').value        = '';
+    el('prompt').value = '';
     el('prompt').style.height = 'auto';
   }
 
   const bubble = appendTurn('ai');
   const cursor = Object.assign(document.createElement('span'), { className: 'cursor' });
   bubble.appendChild(cursor);
-
   busy = true;
   el('send').disabled = true;
 
   const gw      = el('gateway').value || 'bifrost';
   const profile = GATEWAYS[gw] || GATEWAYS.bifrost;
-  // For Helicone, searchInput holds the Helicone auth key (secondary key)
   const headers = profile.headers(key, gw === 'helicone' ? searchInput.value.trim() : undefined);
-  let inputTk = 0, outputTk = 0;
 
   try {
     setStatus('streaming…', 'busy');
-    const body = {
-      model: el('model').value, max_tokens: MAX_TOKENS,
-      stream: true, system: SYSTEM_PROMPT, messages: history,
-      tools: [WEB_SEARCH_TOOL],
-    };
-
     const res = await fetch(`${baseUrl}/v1/messages`, {
-      method: 'POST', headers, body: JSON.stringify(body),
+      method: 'POST', headers,
+      body: JSON.stringify({
+        model: el('model').value, max_tokens: MAX_TOKENS,
+        stream: true, system: SYSTEM_PROMPT, messages: history,
+        tools: [WEB_SEARCH_TOOL],
+      }),
     });
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
 
-    const { out, inputTk: iTk, outputTk: oTk } = await readStream(res, bubble, cursor);
-    inputTk += iTk; outputTk += oTk;
-
+    const { out, inputTk, outputTk } = await readStream(res, bubble, cursor);
     cursor.remove();
     if (out) {
-      const finalNode = document.createElement('span');
-      setRendered(finalNode, renderMarkdown(out));
-      bubble.appendChild(finalNode);
+      const node = document.createElement('span');
+      setRendered(node, renderMarkdown(out));
+      bubble.appendChild(node);
     }
     history.push({ role: 'assistant', content: out });
     setStatus('ok', 'ok');

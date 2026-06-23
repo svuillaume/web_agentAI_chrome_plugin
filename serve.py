@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 """
 Local proxy + static server for chatbox.html and the Chrome extension.
-  GET  /              → serves chatbox.html
-  GET  /config        → returns gateway URL + key as JSON
-  GET  /search?q=...  → proxies SearXNG search (CORS bypass for the extension)
-  POST /proxy/v1/*    → proxies to gateway upstream
-  POST /codesec       → runs lacework SCA+SAST on submitted code snippet
-  POST /sbom          → runs lacework SCA and returns CycloneDX SBOM JSON
-  GET  /lql/queries   → lists saved LQL YAML files from LQL_QUERIES_DIR
-  POST /lql/run       → executes an LQL query against the FortiCNAPP API
-  POST /lql/generate  → natural-language objective → LQL queryText via Claude
 
-Usage: python3 serve.py
-       open http://localhost:8765
+GET  /              → chatbox.html
+GET  /config        → gateway URL, key, lw_ready flag
+GET  /search?q=…    → SearXNG proxy (optional legacy; extension now uses Anthropic web search)
+POST /proxy/v1/*    → proxy to AI gateway upstream
+POST /codesec       → lacework SCA+SAST on submitted code
+POST /sbom          → CycloneDX SBOM via lacework SCA
+POST /compliance    → compliance PDF; cached at /compliance/latest-text
+GET  /compliance/list → available frameworks
+GET  /lql/queries   → list .yaml files from LQL_QUERIES_DIR
+POST /lql/run       → execute LQL against FortiCNAPP
+POST /lql/cve       → CVE attack surface: hosts + containers
+POST /lql/generate  → plain-English → LQL via Claude
 
-SEARXNG_URL in .env overrides the default (http://localhost:8080).
-LQL_QUERIES_DIR in .env points to the lql_queries/ folder from the forticnapp-lql repo.
-The extension tries Docker SearXNG first; falls back here if Docker is not running.
+Usage: python3 serve.py  →  http://localhost:8765
 """
-import http.server, json, os, shutil, socketserver, subprocess, tempfile, urllib.parse, urllib.request, urllib.error
+import base64, http.server, json, os, shutil, socketserver, subprocess, tempfile, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timezone, timedelta
 
 PORT      = 8765
@@ -457,9 +456,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             rg = 'LACEWORK_RESOURCE_GROUP_ALL_AWS'
 
-        import datetime
-        end   = datetime.datetime.now(datetime.timezone.utc)
-        start = end - datetime.timedelta(days=7)
+        end   = datetime.now(timezone.utc)
+        start = end - timedelta(days=7)
         fmt_t = lambda d: d.strftime('%Y-%m-%dT%H:%M:%SZ')
         headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
@@ -539,7 +537,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             finally:
                 os.unlink(tmppath)
         else:
-            import base64
             self.send_json(200, json.dumps({
                 'name':   fw_name,
                 'text':   None,
@@ -1143,16 +1140,13 @@ def _lw_creds_present():
 
 LW_READY = _lw_creds_present()
 
+lw_status = 'ready' if LW_AVAILABLE else 'WARNING: lacework CLI not found'
 print(f'Web AI Agent  →  http://localhost:{PORT}')
-print(f'Virtual key      →  {"loaded (" + VIRTUAL_KEY[:12] + "…)" if VIRTUAL_KEY else "MISSING — edit .env"}')
-print(f'Proxy route      →  /proxy/v1/* → {UPSTREAM.rstrip("/")}/v1/*')
-print(f'Search proxy     →  /search?q=... → {SEARXNG_URL}')
-print(f'CodeSec scan     →  POST /codesec     {"(lacework CLI ready)" if LW_AVAILABLE else "(WARNING: lacework CLI not found)"}')
-print(f'SBOM export      →  POST /sbom        {"(lacework CLI ready)" if LW_AVAILABLE else "(WARNING: lacework CLI not found)"}')
-print(f'Compliance PDF   →  POST /compliance  {"(lacework CLI ready)" if LW_AVAILABLE else "(WARNING: lacework CLI not found)"}')
-print(f'LQL queries      →  GET  /lql/queries  {"(" + LQL_QUERIES_DIR + ")" if LQL_QUERIES_DIR else "(WARNING: LQL_QUERIES_DIR not set in .env)"}')
-print(f'LQL run          →  POST /lql/run')
-print(f'LQL generate     →  POST /lql/generate')
+print(f'Gateway          →  {UPSTREAM.rstrip("/")}/v1/*  key:{"ok" if VIRTUAL_KEY else "MISSING"}')
+print(f'CodeSec/SBOM     →  {lw_status}')
+print(f'Compliance       →  {lw_status}')
+print(f'LQL queries dir  →  {LQL_QUERIES_DIR or "WARNING: LQL_QUERIES_DIR not set in .env"}')
+print(f'Search proxy     →  /search → {SEARXNG_URL}  (legacy; extension uses Anthropic web search)')
 
 socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(('', PORT), Handler) as httpd:

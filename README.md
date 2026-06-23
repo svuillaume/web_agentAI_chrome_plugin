@@ -7,22 +7,22 @@ A Chrome side-panel extension that brings AI chat and FortiCNAPP cloud security 
 ## What it does
 
 - **AI chat** — streaming responses via any AI gateway (Bifrost, Portkey, LiteLLM, Helicone)
-- **Live web search** — private, self-hosted [SearXNG](https://github.com/searxng/searxng) running locally
-- **Page tools** — read any open tab, TL;DR summaries
+- **Web search** — Anthropic's native `web_search_20260209` server-side tool; no local search instance needed
+- **Page tools** — read any open tab into context; TL;DR summaries
 - **FortiCNAPP security tools** _(require `~/.lacework.toml` credentials)_:
-  - 🛡 **CodeSec** — SCA + SAST scan on code found on any page or GitHub repo
+  - 🛡 **CodeSec** — SCA + SAST scan on code from any page or GitHub repo
   - 📦 **SBOM** — CycloneDX bill of materials from page code
-  - 📋 **Compliance** — generate PDF reports for 54 frameworks (CIS, NIST, PCI DSS, SOC 2, HIPAA, ISO 27001…)
+  - 📋 **Compliance** — PDF reports for 54 frameworks (CIS, NIST, PCI DSS, SOC 2, HIPAA, ISO 27001…)
   - 🚨 **CVE** — attack surface lookup: hosts + containers ranked by internet exposure
   - 🔍 **LQL** — run saved Lacework Query Language queries against your live tenant
-  - ✨ **LQL Generate** — plain-English → LQL query, built and run instantly
+  - ✨ **LQL Generate** — plain-English → LQL, built and run instantly
 
 ---
 
 ## Requirements
 
 - Google Chrome
-- An AI Gateway URL + virtual key
+- An AI gateway URL + key (Bifrost, Portkey, LiteLLM, or Helicone)
 - Docker Desktop _(recommended)_ or Python 3.8+
 - `lacework` CLI + `~/.lacework.toml` _(optional — FortiCNAPP tools only)_
 
@@ -36,11 +36,10 @@ A Chrome side-panel extension that brings AI chat and FortiCNAPP cloud security 
 
 The script handles everything interactively:
 
-1. Creates `.env` from template if missing — prompts for `ANTHROPIC_BASE_URL` and `BIFROST_VIRTUAL_KEY` only if not already set
-2. Detects if port 8080 is occupied — offers to kill the process
-3. Checks Docker: if running → starts SearXNG + Web AI Agent containers; if not → falls back to Python venv
-4. Waits for both services to be healthy
-5. Prints **`✔ Web search tool ready!`** when done
+1. Creates `.env` from template — prompts for `ANTHROPIC_BASE_URL` and gateway key
+2. Detects if port 8080 is occupied and offers to free it
+3. Starts Docker services (or falls back to Python if Docker isn't running)
+4. Waits for services to be healthy
 
 On Windows: `setup.ps1`
 
@@ -48,26 +47,26 @@ On Windows: `setup.ps1`
 
 ## Configuration
 
-`.env` values (auto-created by `setup.sh`, or copy `.env.tpl` manually):
+Copy `.env.tpl` → `.env` and fill in:
 
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_BASE_URL` | AI gateway endpoint, e.g. `https://your-gateway.example.com/anthropic` |
 | `BIFROST_VIRTUAL_KEY` | Gateway virtual key (`sk-bf-…`) |
-| `ANTHROPIC_DEFAULT_MODEL` | Model for chat (default: `claude-haiku-4-5-20251001`) |
-| `SEARXNG_URL` | Set to `http://searxng:8080` for Docker, `http://localhost:8080` for Python-direct |
+| `ANTHROPIC_DEFAULT_MODEL` | Model for chat and LQL generate (default: `claude-haiku-4-5`) |
 | `LQL_QUERIES_DIR` | Path to `.yaml` LQL query files (mounted at `/lql_queries` in Docker) |
+| `SEARXNG_URL` | Optional legacy search proxy; set to `http://searxng:8080` in Docker |
 
 FortiCNAPP credentials: run `lacework configure` — stored in `~/.lacework.toml`, mounted read-only into the container.
 
 ---
 
-## Manual Docker commands (these are managed in setup.sh) 
+## Docker commands
 
 ```bash
-docker compose up -d                       # start all services
-docker compose up --build -d webai         # rebuild after serve.py / chatbox.html changes
-docker compose down                        # stop everything
+docker compose up -d                    # start all services
+docker compose up --build -d webai      # rebuild after serve.py / chatbox.html changes
+docker compose down                     # stop everything
 ```
 
 ---
@@ -78,7 +77,7 @@ docker compose down                        # stop everything
 2. **Load unpacked** → select the `extension/` folder
 3. Click the toolbar icon to open the side panel
 
-The extension auto-fills its config from `GET /config` on `localhost:8765` at startup.
+The extension auto-fills its config from `GET /config` on `localhost:8765` at startup. If `serve.py` isn't running, it falls back to `extension/config.json` (create from `config.json.tpl`).
 
 ---
 
@@ -98,7 +97,7 @@ The extension auto-fills its config from `GET /config` on `localhost:8765` at st
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/config` | Gateway URL, key, `lw_ready` flag |
-| GET | `/search?q=…` | SearXNG proxy |
+| GET | `/search?q=…` | SearXNG proxy (optional legacy) |
 | POST | `/proxy/v1/*` | Proxy to AI gateway |
 | POST | `/codesec` | SCA + SAST scan |
 | POST | `/sbom` | CycloneDX SBOM |
