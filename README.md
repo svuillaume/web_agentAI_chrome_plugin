@@ -210,7 +210,7 @@ User types objective
                         → queryId + queryText stored in cache (rows not cached)
 ```
 
-**What's in the system prompt**: `serve.py` embeds a detailed LQL reference into every generation request — datasource names, field syntax rules (`RESOURCE_CONFIG:field::String`), valid operators, region filter patterns, timestamp rules, and working example queries. This gives Claude the context it needs to generate correct LQL without hallucinating non-existent functions or field names.
+**How Claude knows LQL — lightweight RAG**: Anthropic has no built-in knowledge of LQL. `serve.py` injects a full LQL reference directly into the system prompt on every request — datasource names, field syntax rules (`RESOURCE_CONFIG:field::String`), valid operators, region filter patterns, timestamp rules, and working example queries. This is Retrieval-Augmented Generation (RAG) without the retrieval step: the knowledge base is small enough to inject in full every time, so no vector database or embedding model is needed. Without this injection, Claude would hallucinate non-existent functions and wrong field names.
 
 **Run-then-fix loop**: the query is actually executed (not just validated) before being returned. If the run fails (wrong field name, invalid operator, bad region filter), the error is fed back to Claude automatically — up to 3 retries. The extension receives pre-fetched rows alongside the query, with no second round-trip needed.
 
