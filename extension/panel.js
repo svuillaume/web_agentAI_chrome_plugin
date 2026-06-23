@@ -178,12 +178,13 @@ async function showGreeting() {
   }
 
   const name = firstName ? `, ${firstName.charAt(0).toUpperCase() + firstName.slice(1)}` : '';
-  appendTurn('ai', `**${greeting()}${name}!** — I'm your Web AI chat Assistant - I also provide FortiCNAPP security tools in your browser.
+  appendTurn('ai', `**${greeting()}${name}!** — I'm your Web AI Assistant, built into the browser. I can help you understand the page you're viewing and connect directly to your FortiCNAPP environment.
 
-• 📄 **Read** / **TL;DR** — load or summarise the current page
-• 🔰 **FortiCNAPP** dropdown → Scan code, run compliance reports, search CVEs, run LQL queries
+• 📄 **Read** / **TL;DR** — load the current page into context or generate a concise summary
+• 🛡 **Scan Code** — run SCA and SAST scans against code found on the current page or a GitHub repository
+• 🔰 **FortiCNAPP Security Tools** (Cloud Security) — run compliance reports, search CVEs, execute LQL queries, and investigate cloud assets, vulnerabilities, risks, and security posture
 
-Type anything to start.`);
+Type anything to get started.`);
 }
 showGreeting();
 
@@ -328,8 +329,10 @@ function appendTurn(role, text = '') {
     const avatarClone  = Object.assign(document.createElement('div'), { className: 'role ai', textContent: 'AI' });
     const turnClone    = Object.assign(document.createElement('div'), { className: 'turn turn-ai' });
 
-    col.append(lbl, body, copyBtn);
-    colClone.append(lblClone, bodyClone, copyBtnClone);
+    body.appendChild(copyBtn);
+    bodyClone.appendChild(copyBtnClone);
+    col.append(lbl, body);
+    colClone.append(lblClone, bodyClone);
     turnClone.append(avatarClone, colClone);
 
     el('log-latest').appendChild(turn);

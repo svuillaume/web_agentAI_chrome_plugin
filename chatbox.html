@@ -412,7 +412,7 @@ function render(t) {
       if (cfg.user_name) name = ', ' + cfg.user_name.charAt(0).toUpperCase() + cfg.user_name.slice(1);
     }
   } catch { /* serve.py not running */ }
-  appendTurn('ai', `**${greet}${name}!** — I'm your Web AI chat Assistant - I also provide FortiCNAPP security tools in your browser.\n\nType anything to start.`);
+  appendTurn('ai', `**${greet}${name}!** — I'm your Web AI Assistant, built into the browser. I can help you understand the page you're viewing and connect directly to your FortiCNAPP environment.\n\n• **Read** / **TL;DR** — load the current page into context or generate a concise summary\n• **Scan Code** — run SCA and SAST scans against code found on the current page or a GitHub repository\n• **FortiCNAPP Security Tools** (Cloud Security) — run compliance reports, search CVEs, execute LQL queries, and investigate cloud assets, vulnerabilities, risks, and security posture\n\nType anything to get started.`);
 })();
 
 // ── Persist key ───────────────────────────────────────────────────────────────
