@@ -47,8 +47,16 @@ You do not need Docker. You do not need to be a developer.
 
 ### Step 1 — Download the extension
 
-Download or clone this repository to a folder on your computer.
-If you received a `.zip` file, unzip it first.
+**Option A — Git clone (recommended):**
+```bash
+git clone https://github.com/svuillaume/webaiagent.git
+cd webaiagent
+```
+
+**Option B — Download ZIP:**
+1. Go to [github.com/svuillaume/webaiagent](https://github.com/svuillaume/webaiagent)
+2. Click **Code → Download ZIP**
+3. Unzip the downloaded file and open a terminal in the extracted folder
 
 ---
 
