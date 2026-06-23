@@ -112,7 +112,7 @@ body {
 #key-input { width: 110px; }
 #model     { width: 138px; font-family: var(--sans); font-size: 11px; }
 
-/* Status uses ::before dot so setStatus(text, cls) still works unchanged */
+/* Status dot: ::before so setStatus(text, cls) works unchanged */
 #status {
   margin-left: auto;
   font-size: 10px;
@@ -592,21 +592,18 @@ body {
 @keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
 .turn:last-child { border-bottom: none; }
 
-/* User turns: subtle warm tint with a left accent bar */
 .turn.turn-user {
   background: var(--accent-bg);
   border-left: 3px solid var(--accent);
   padding-left: 11px;
 }
 
-/* AI turns: slightly elevated surface so they pop off the log bg */
 .turn.turn-ai {
   background: var(--surface2);
   border-left: 3px solid var(--border);
   padding-left: 11px;
 }
 
-/* System / tool messages stay flat and dim */
 .turn.turn-system {
   background: transparent;
   border-left: 3px solid transparent;
@@ -749,7 +746,6 @@ body {
 </head>
 <body>
 
-<!-- Row 1: Connection config -->
 <div id="config-bar">
   <select id="gateway" title="AI Gateway">
     <option value="bifrost">⚡ Bifrost</option>
@@ -762,7 +758,6 @@ body {
   <label id="key-label" for="key-input">key</label>
   <input id="key-input" type="password" placeholder="sk-bf-…" autocomplete="off" />
   <input id="key2-input" type="hidden" />
-  <span id="search-dot" style="display:none"></span>
   <select id="model">
     <option value="claude-haiku-4-5" selected>haiku-4-5 ⚡</option>
     <option value="claude-sonnet-4-6">sonnet-4-6</option>
@@ -773,34 +768,31 @@ body {
   <span id="status">—</span>
 </div>
 
-<!-- Row 2: Action chips -->
 <div id="action-bar">
-  <button id="read-page" class="chip"         title="Read current page into context">📄 Read</button>
+  <button id="read-page" class="chip"         title="Read current page into context"> Read</button>
   <button id="tldr"      class="chip"         title="Summarize current page">TL;DR</button>
   <div class="sep"></div>
   <div id="fcnapp-wrap">
-    <button id="fcnapp-btn" class="chip accent" title="FortiCNAPP tools">🔰 FortiCNAPP <span class="caret">▼</span></button>
+    <button id="fcnapp-btn" class="chip accent" title="FortiCNAPP tools"> FortiCNAPP <span class="caret">▼</span></button>
     <div id="fcnapp-menu">
-      <button id="codesec"    class="fcnapp-item accent"  title="SCA + SAST scan on code found on this page">🛡 Scan</button>
-      <button id="sbom"       class="fcnapp-item accent"  title="SBOM export" style="display:none">📦 SBOM</button>
-      <button id="compliance" class="fcnapp-item success" title="Generate compliance PDF report">📋 Compliance</button>
-      <button id="lql"        class="fcnapp-item accent"  title="Run LQL queries against your tenant">🔍 LQL</button>
-      <button id="cve-btn"    class="fcnapp-item danger"  title="CVE attack surface across hosts &amp; containers">🚨 CVE</button>
+      <button id="codesec"    class="fcnapp-item accent"  title="SCA + SAST scan on code found on this page"> CodeScan</button>
+      <button id="sbom"       class="fcnapp-item accent"  title="SBOM export" style="display:none"> SBOM Gen</button>
+      <button id="compliance" class="fcnapp-item success" title="Generate compliance PDF report"> Compliance Report</button>
+      <button id="lql"        class="fcnapp-item accent"  title="Run LQL queries against your tenant"> Advanced Analytics</button>
+      <button id="cve-btn"    class="fcnapp-item danger"  title="CVE attack surface across hosts &amp; containers"> Attack Threat Surface</button>
     </div>
   </div>
   <button id="clear"      class="chip">✕ Clear</button>
 </div>
 
-<!-- CodeSec drawer -->
 <div id="codesec-panel" class="drawer">
   <div class="drawer-header">
-    <span id="codesec-panel-title">🛡 FortiCNAPP CodeSec</span>
+    <span id="codesec-panel-title"> FortiCNAPP CodeSec</span>
     <span class="drawer-close" id="codesec-close">✕</span>
   </div>
   <div id="codesec-body"></div>
 </div>
 
-<!-- Compliance drawer -->
 <div id="compliance-panel" class="drawer">
   <div class="drawer-header">
     <span>📋 Compliance Report</span>
@@ -813,7 +805,6 @@ body {
   </div>
 </div>
 
-<!-- CVE Attack Surface drawer -->
 <div id="cve-panel" class="drawer">
   <div class="drawer-header">
     <span>🚨 CVE Attack Surface</span>
@@ -833,7 +824,6 @@ body {
   <div id="cve-results" class="drawer-results"></div>
 </div>
 
-<!-- LQL drawer (tabbed: Saved / Generate) -->
 <div id="lql-panel" class="drawer">
   <div class="drawer-header">
     <span>🔍 LQL</span>
@@ -844,7 +834,6 @@ body {
     <div class="lql-tab" data-tab="generate">✨ Generate</div>
   </div>
 
-  <!-- Saved queries pane -->
   <div class="lql-pane active" id="lql-pane-saved">
     <div class="drawer-body" id="lql-body">
       <select id="lql-select" class="drawer-select"><option value="">Loading queries…</option></select>
@@ -854,7 +843,6 @@ body {
     <div id="lql-results" class="drawer-results"></div>
   </div>
 
-  <!-- Generate pane -->
   <div class="lql-pane" id="lql-pane-generate">
     <div class="drawer-body">
       <input id="lql-objective" class="drawer-input" type="text"
@@ -874,10 +862,8 @@ body {
   </div>
 </div>
 
-<!-- Chat log -->
 <div id="log"></div>
 
-<!-- Input -->
 <div id="input-row">
   <textarea id="prompt" placeholder="Ask about your cloud security posture… (Enter to send)" rows="1"></textarea>
   <button id="send">Send</button>

@@ -73,8 +73,6 @@ const setStatus = (text, state = '') => {
 };
 
 // ── Storage ───────────────────────────────────────────────────────────────
-// URL + key → session storage (RAM only, cleared on Chrome close).
-// Model/gateway → local storage (persists, not sensitive).
 chrome.storage.session.get(['bf_url', 'bf_key', 'bf_key2'], ({ bf_url, bf_key, bf_key2 }) => {
   if (bf_url)  urlInput.value  = bf_url;
   if (bf_key)  keyInput.value  = bf_key;
@@ -131,7 +129,6 @@ async function autoFillFromConfig() {
   const lwReady = cfg.lw_ready !== false;   // creds — LQL/CVE/Compliance
   const lwCli   = cfg.lw_cli   !== false;   // CLI binary — CodeSec/SBOM
 
-  // CodeSec/SBOM need the lacework CLI binary for SCA scanning
   [['codesec', lwCli,   '⚠ lacework CLI not installed — CodeSec unavailable'],
    ['compliance', lwReady, '⚠ FortiCNAPP credentials not found (add ~/.lacework.toml)'],
    ['lql',        lwReady, '⚠ FortiCNAPP credentials not found (add ~/.lacework.toml)'],
@@ -154,21 +151,12 @@ async function autoFillFromConfig() {
   }
 }
 
-// ── Welcome message ───────────────────────────────────────────────────────────
-appendTurn('ai', `**Web AI Agent** — your browser-native security assistant powered by FortiCNAPP.
+appendTurn('ai', `**Web AI Agent** — AI chat + FortiCNAPP security tools in your browser.
 
-**What I can do on any page you're browsing:**
-• 📄 **Read** — load the page into context so you can ask questions about it
-• **TL;DR** — summarise the page in 3–5 bullets with source links
+• 📄 **Read** / **TL;DR** — load or summarise the current page
+• 🔰 **FortiCNAPP** dropdown → Scan code, run compliance reports, search CVEs, run LQL queries
 
-**Cloud security tools** _(🔑 require a valid FortiCNAPP API key configured in the backend)_:
-• 🛡 **Scan** — FortiCNAPP SCA + SAST scan on code found on this page
-• 📋 **Compliance** — generate a FortiCNAPP compliance PDF report
-• 🚨 **CVE** — attack surface assessment: search any CVE (e.g. CVE-2021-44228) across hosts and containers, ranked by internet exposure and host risk score
-• 🔍 **LQL — Saved queries** — run pre-built Lacework Query Language queries against your live tenant
-• ✨ **LQL — Generate** — describe what you want to find in plain English; I'll build and run the LQL query for you
-
-Type anything below to start a conversation.`);
+Type anything to start.`);
 
 const saveSession = (key, input) => {
   const v = input.value.trim();
@@ -181,7 +169,7 @@ key2Input.addEventListener('change', () => saveSession('bf_key2', key2Input));
 el('model').addEventListener('change', () => chrome.storage.local.set({ bf_model: el('model').value }));
 
 // ── Markdown renderer ─────────────────────────────────────────────────────
-// Escape FIRST, then transform — model output can never inject executable HTML.
+// Escape before transform so model output cannot inject HTML.
 function renderMarkdown(text) {
   const esc  = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const link = (href, label) => {
@@ -203,7 +191,6 @@ function renderMarkdown(text) {
   }).join('');
 }
 
-// Inert <template> parse: injected scripts never execute
 function setRendered(node, html) {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
@@ -428,7 +415,6 @@ async function send(silent = false) {
     btn.classList.toggle('open', !isOpen);
   });
 
-  // clicking a menu item closes the dropdown
   menu.addEventListener('click', () => {
     menu.classList.remove('open');
     btn.classList.remove('open');
@@ -442,7 +428,7 @@ async function send(silent = false) {
   });
 })();
 
-// Open links in a new tab — target="_blank" is blocked in MV3 side panels
+// MV3 side panels block target="_blank"; open links via chrome.tabs instead
 el('log').addEventListener('click', e => {
   const a = e.target.closest('a.ext-link');
   if (!a) return;
@@ -460,8 +446,7 @@ el('prompt').focus();
 
 // ── FortiCNAPP CodeSec + SBOM ─────────────────────────────────────────────
 
-// Detect whether a snippet is a package manifest and return its canonical filename,
-// or fall back to a source-file extension. SCA requires real manifest filenames.
+// SCA requires real manifest filenames — detect the type from content.
 function guessFilename(snippet, index) {
   // Package manifests — must use exact filenames for lacework SCA to parse them
   if (/^\s*\{[\s\S]*"dependencies"\s*:/.test(snippet))           return 'package.json';
@@ -494,7 +479,6 @@ function guessFilename(snippet, index) {
 
 // ── GitHub repo scanner ───────────────────────────────────────────────────
 
-// Files worth fetching for SCA/SAST — manifests first, then common source
 const MANIFEST_NAMES = new Set([
   'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt',
   'Pipfile', 'Pipfile.lock', 'setup.py', 'setup.cfg', 'pyproject.toml',
@@ -583,8 +567,6 @@ async function fetchGithubRepoFiles(owner, repo) {
   return files;
 }
 
-// Extract all code blocks from the active tab and return named files for SCA.
-// On GitHub pages, fetches real repo files via the API instead of scraping HTML.
 async function extractPageCode() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error('No active tab');
@@ -918,11 +900,9 @@ async function runComplianceReport() {
 el('comp-generate').addEventListener('click', runComplianceReport);
 
 // ── CVE text-selection auto-fill ─────────────────────────────────────────────
-// background.js stores the selected CVE in session storage; we poll for it
-// so it works whether the panel was already open or was just opened.
+
 function openCvePanel(cveId) {
   el('cve-input').value = cveId;
-  // Close other drawers, open CVE panel
   ['codesec-panel', 'compliance-panel', 'lql-panel'].forEach(id =>
     el(id).classList.remove('open'));
   el('cve-panel').classList.add('open');
@@ -933,7 +913,6 @@ chrome.runtime.onMessage.addListener(msg => {
   if (msg.type === 'CVE_SELECTED' && msg.cveId) openCvePanel(msg.cveId);
 });
 
-// Pick up a CVE that was selected before the panel was open
 chrome.storage.session.get('pendingCve', ({ pendingCve }) => {
   if (!pendingCve) return;
   chrome.storage.session.remove('pendingCve');

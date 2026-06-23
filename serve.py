@@ -135,8 +135,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = json.dumps({
             'gateway_url': env.get('ANTHROPIC_BASE_URL', ''),
             'api_key':     VIRTUAL_KEY,
-            'lw_ready':    LW_READY,       # creds present (LQL/CVE/Compliance work)
-            'lw_cli':      LW_AVAILABLE,   # lacework CLI installed (CodeSec/SBOM work)
+            'lw_ready':    LW_READY,
+            'lw_cli':      LW_AVAILABLE,
         }).encode()
         self.send_json(200, body)
 
@@ -208,7 +208,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cmd = ['lacework', 'sca', 'scan', tmpdir,
                    '--deployment=offprem', '--noninteractive',
                    '--save-results=false', '-f', 'lw-json', '-o', out_json,
-                   '--secret=false']   # skip secretsAll cloud query (times out)
+                   '--secret=false']
             if LW_PROFILE:
                 cmd += ['--profile', LW_PROFILE]
             result   = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -310,7 +310,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def _lw_token(self):
-        """Obtain a short-lived Bearer token. Reads ~/.lacework.toml, falls back to env vars."""
         account, api_key, api_secret = _lw_creds()
         if not (account and api_key and api_secret):
             raise ValueError(
@@ -326,18 +325,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return token_data['token'], base_url
 
     def _lw_evaluator_id(self, token, base_url, query_text):
-        """Return the first matching evaluatorId for cloud config datasources.
-
-        LW_CFG_AWS_* / LW_CFG_AZURE_* / LW_CFG_GCP_* queries require an evaluatorId
-        pointing to the cloud integration.  Workload and CloudTrail datasources return None.
-        """
+        """LW_CFG_AWS/AZURE/GCP queries need an evaluatorId; workload datasources return None."""
         qt_upper = query_text.upper()
         if   'LW_CFG_AWS_'   in qt_upper: prefix = 'AWS'
         elif 'LW_CFG_AZURE_' in qt_upper: prefix = 'AZURE'
         elif 'LW_CFG_GCP_'   in qt_upper: prefix = 'GCP'
         else:                              return None
         headers = {'Authorization': f'Bearer {token}'}
-        # Try multiple possible endpoint names across FortiCNAPP API versions
         for url in [
             f'{base_url}/api/v2/CloudAccounts',
             f'{base_url}/api/v2/Integrations',
@@ -370,7 +364,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         raise ValueError('No alert channel found — at least one ReportConfiguration must exist')
 
     def serve_compliance_list(self):
-        """Return all frameworks from /api/v2/Frameworks grouped by cloud."""
         try:
             token, base_url = self._lw_token()
         except Exception as e:
@@ -396,7 +389,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json(e.code, e.read())
 
     def serve_compliance(self):
-        """Accept {frameworkGuid, frameworkName}, create temp config, generate PDF, delete config."""
         try:
             payload = json.loads(self._read_body())
         except json.JSONDecodeError:
@@ -418,7 +410,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json(503, json.dumps({'error': str(e)}).encode())
             return
 
-        # Pick resource group based on cloud
         cloud_str = ' '.join(clouds).upper()
         if 'AZURE' in cloud_str:
             rg = 'LACEWORK_RESOURCE_GROUP_ALL_AZURE'
@@ -434,7 +425,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         fmt_t = lambda d: d.strftime('%Y-%m-%dT%H:%M:%SZ')
         headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-        # Create temp ReportConfiguration
         cfg_body = json.dumps({
             'name':         f'webai-tmp-{fw_guid[:8]}',
             'format':       'PDF',
@@ -458,14 +448,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             resp = urllib.request.urlopen(req, timeout=15)
             cfg_guid = json.loads(resp.read())['data']['reportConfigGuid']
 
-            # Generate PDF
             gen_url = (f'{base_url}/api/v2/ReportConfigurations/{cfg_guid}/generate'
                        f'?startTime={fmt_t(start)}&endTime={fmt_t(end)}&format=pdf')
             req2     = urllib.request.Request(gen_url, method='POST', headers=headers)
             resp2    = urllib.request.urlopen(req2, timeout=120)
             pdf_bytes = resp2.read()
             safe_name = fw_name.replace('/', '-').replace(' ', '_')[:60]
-            # Cache for /compliance/latest-text
             _last_compliance_pdf['name']  = fw_name
             _last_compliance_pdf['bytes'] = pdf_bytes
             self.send_pdf(pdf_bytes, f'compliance-{safe_name}.pdf')
@@ -478,7 +466,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 err_msg = err_body.decode()[:500]
             self.send_json(e.code, json.dumps({'error': err_msg}).encode())
         finally:
-            # Always clean up the temp config
             if cfg_guid:
                 try:
                     urllib.request.urlopen(
@@ -490,13 +477,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     pass
 
     def serve_compliance_text(self):
-        """Extract text from the last generated compliance PDF and return as JSON."""
         if not _last_compliance_pdf.get('bytes'):
             self.send_json(404, json.dumps({'error': 'No compliance PDF generated yet'}).encode())
             return
         pdf_bytes = _last_compliance_pdf['bytes']
         fw_name   = _last_compliance_pdf.get('name', 'Compliance Report')
-        # Try pdftotext if available; otherwise return base64 for client-side fallback
         if shutil.which('pdftotext'):
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
                 f.write(pdf_bytes)
@@ -518,13 +503,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             }).encode())
 
     def serve_lql_cve(self):
-        """Accept {cveId, days?}, return per-host attack surface for that CVE.
-
-        Correlates:
-          - Vulnerabilities/Hosts/search  → which hosts carry the CVE + host internet exposure
-          - Inventory/search (ec2:instance + container:workload) → container-level exposure
-        Returns hosts sorted by internet-exposed first, then host risk score descending.
-        """
         try:
             payload = json.loads(self._read_body())
         except json.JSONDecodeError:
@@ -564,7 +542,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     msg = err.decode()[:400]
                 raise RuntimeError(f'{e.code}: {msg}')
 
-        # ── 1. Pull vuln records for this CVE (Critical + High) ──────────────
         vuln_rows = []
         for sev in ('Critical', 'High'):
             try:
@@ -582,7 +559,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 })
                 vuln_rows.extend(resp.get('data', []))
             except RuntimeError:
-                pass  # severity tier may return 404 on tenants with no matches
+                pass
 
         if not vuln_rows:
             self.send_json(200, json.dumps({
@@ -591,7 +568,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             }).encode())
             return
 
-        # ── 2. Aggregate per host ────────────────────────────────────────────
         hosts = {}
         for v in vuln_rows:
             mid   = str(v.get('mid', 'unknown'))
@@ -628,9 +604,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if pkg and pkg not in [p['name'] for p in hosts[mid]['packages']]:
                 hosts[mid]['packages'].append({'name': pkg, 'version': ver})
 
-        # ── 3. Pull containers for each affected mid ─────────────────────────
-        mids = list(hosts.keys())
-        # Batch: query containers for up to 20 mids at a time
+        mids  = list(hosts.keys())
         BATCH = 20
         for i in range(0, len(mids), BATCH):
             batch = mids[i:i + BATCH]
@@ -646,7 +620,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for item in resp.get('data', []):
                     cfg  = item.get('resourceConfig') or {}
                     itags = item.get('resourceTags') or {}
-                    # Match container to host by MID or hostname tag
                     c_mid = str(itags.get('mid') or cfg.get('MID') or '')
                     c_host = str(itags.get('Hostname') or cfg.get('Hostname') or '')
                     matched_mid = None
@@ -669,9 +642,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if exposed:
                         hosts[matched_mid]['container_exposed'] = True
             except RuntimeError:
-                pass  # container inventory optional — don't fail the whole request
+                pass
 
-        # ── 4. Sort: internet-exposed (host or container) first, then risk ───
         sorted_hosts = sorted(
             hosts.values(),
             key=lambda h: (
@@ -695,7 +667,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         }, default=str).encode())
 
     def serve_lql_queries(self):
-        """Return a list of saved LQL YAML files from LQL_QUERIES_DIR."""
         if not LQL_QUERIES_DIR or not os.path.isdir(LQL_QUERIES_DIR):
             self.send_json(503, json.dumps({
                 'error': 'LQL_QUERIES_DIR not set or not found — add it to .env'
@@ -709,12 +680,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 with open(path) as f:
                     raw = f.read()
-                # Extract queryId and queryText from the YAML (no external dep)
                 for line in raw.splitlines():
                     if line.startswith('queryId:'):
                         query_id = line.split(':', 1)[1].strip()
                         break
-                # Extract the LQL block after "queryText: |-"
                 lines = raw.splitlines()
                 in_block, block_indent = False, 0
                 lql_lines = []
@@ -740,7 +709,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json(200, json.dumps({'queries': queries}).encode())
 
     def serve_lql_generate(self):
-        """Accept {objective}, call Claude via gateway, return {queryText, queryId}."""
         try:
             payload = json.loads(self._read_body())
         except json.JSONDecodeError:
@@ -943,8 +911,7 @@ SSM SecureString parameters (potential unmanaged secrets):
 Respond with ONLY a valid JSON object — no markdown, no code fences, no explanation:
 {"queryId": "Custom_<Cloud>_<Service>_<PascalCaseDescription>", "queryText": "{ source { ... } filter { ... } return distinct { ... } }"}"""
 
-        # Always embed system as first message so it works for both
-        # Anthropic-native gateways and OpenAI-compatible ones (Ollama, etc.)
+        # Embed system as first user message — works for Anthropic and OpenAI-compatible gateways
         messages = [
             {'role': 'user', 'content': f'<system>\n{system_prompt}\n</system>\n\nObjective: {objective}'},
         ]
@@ -968,7 +935,6 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
             resp      = urllib.request.urlopen(req, timeout=60)
             resp_data = json.loads(resp.read())
 
-            # Handle both Anthropic native and OpenAI-compatible response shapes
             if 'content' in resp_data and resp_data['content']:
                 # Anthropic: {"content": [{"type": "text", "text": "..."}]}
                 raw = resp_data['content'][0].get('text', '')
@@ -979,12 +945,10 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
                 raise ValueError(f'Unrecognised response shape: {list(resp_data.keys())}')
 
             raw = raw.strip()
-            # Strip markdown code fences if model wrapped anyway
             if raw.startswith('```'):
                 raw = '\n'.join(raw.split('\n')[1:])
                 if raw.endswith('```'):
                     raw = raw[:-3].strip()
-            # Some models prepend explanatory text before the JSON — find the first '{'
             brace = raw.find('{')
             if brace > 0:
                 raw = raw[brace:]
@@ -1001,7 +965,6 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
             self.send_json(500, json.dumps({'error': str(e)}).encode())
 
     def serve_lql_run(self):
-        """Accept {queryText, startTime?, endTime?}, execute against FortiCNAPP, return rows."""
         try:
             payload = json.loads(self._read_body())
         except json.JSONDecodeError:
@@ -1017,7 +980,6 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
         start = payload.get('startTime') or (now - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
         end   = payload.get('endTime')   or now.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        # Prefer lacework CLI — it resolves provider/evaluator automatically
         if shutil.which('lacework'):
             try:
                 cmd = ['lacework', 'query', 'execute',
@@ -1036,7 +998,6 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
                         'startTime': start, 'endTime': end,
                     }).encode())
                     return
-                # CLI failed — fall through to REST API; surface the error if REST also fails
                 cli_err = (result.stderr or result.stdout or '').strip()
             except subprocess.TimeoutExpired:
                 self.send_json(504, json.dumps({'error': 'Query timed out'}).encode())
@@ -1046,7 +1007,6 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
         else:
             cli_err = ''
 
-        # REST API fallback (works when evaluatorId can be resolved)
         try:
             token, base_url = self._lw_token()
         except Exception as e:
@@ -1096,14 +1056,11 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
 LW_AVAILABLE = shutil.which('lacework') is not None
 
 def _lw_creds():
-    """Return (account, api_key, api_secret) from env vars or ~/.lacework.toml (first section)."""
-    # Env vars take precedence — useful for CI/PoV without a toml file
     account    = env.get('LW_ACCOUNT', '')
     api_key    = env.get('LW_API_KEY', '')
     api_secret = env.get('LW_API_SECRET', '')
     if account and api_key and api_secret:
         return account, api_key, api_secret
-    # Fall back to ~/.lacework.toml
     toml_path = os.path.expanduser('~/.lacework.toml')
     if not os.path.exists(toml_path):
         return '', '', ''
@@ -1118,8 +1075,6 @@ def _lw_creds():
     return account, api_key, api_secret
 
 def _lw_profile():
-    """Return --profile value for lacework CLI ('' = default section)."""
-    # Env vars → no profile flag needed
     if env.get('LW_ACCOUNT') and env.get('LW_API_KEY') and env.get('LW_API_SECRET'):
         return ''
     toml_path = os.path.expanduser('~/.lacework.toml')
@@ -1137,12 +1092,10 @@ LW_PROFILE = _lw_profile()
 account, api_key, api_secret = _lw_creds()
 LW_READY = bool(account and api_key and api_secret)
 
-lw_status = 'ready' if LW_AVAILABLE else 'WARNING: lacework CLI not found'
 print(f'Web AI Agent  →  http://localhost:{PORT}')
-print(f'Gateway          →  {UPSTREAM.rstrip("/")}/v1/*  key:{"ok" if VIRTUAL_KEY else "MISSING"}')
-print(f'CodeSec/SBOM     →  {lw_status}')
-print(f'Compliance       →  {lw_status}')
-print(f'LQL queries dir  →  {LQL_QUERIES_DIR or "WARNING: LQL_QUERIES_DIR not set in .env"}')
+print(f'Gateway       →  {UPSTREAM.rstrip("/")}/v1/*  key:{"ok" if VIRTUAL_KEY else "MISSING"}')
+print(f'FortiCNAPP    →  creds:{"ok" if LW_READY else "MISSING"}  cli:{"ok" if LW_AVAILABLE else "not found"}')
+print(f'LQL dir       →  {LQL_QUERIES_DIR or "not set"}')
 
 socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(('', PORT), Handler) as httpd:
