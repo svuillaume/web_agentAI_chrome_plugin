@@ -210,7 +210,17 @@ User types objective
                         → queryId + queryText stored in cache (rows not cached)
 ```
 
-**How Claude knows LQL — lightweight RAG**: Anthropic has no built-in knowledge of LQL. `serve.py` injects a full LQL reference directly into the system prompt on every request — datasource names, field syntax rules (`RESOURCE_CONFIG:field::String`), valid operators, region filter patterns, timestamp rules, and working example queries. This is Retrieval-Augmented Generation (RAG) without the retrieval step: the knowledge base is small enough to inject in full every time, so no vector database or embedding model is needed. Without this injection, Claude would hallucinate non-existent functions and wrong field names.
+**How Claude knows LQL — lightweight RAG**: Anthropic has no built-in knowledge of LQL. `serve.py` injects a full LQL reference directly into the system prompt on every request — datasource names, field syntax rules (`RESOURCE_CONFIG:field::String`), valid operators, region filter patterns, timestamp rules, and working example queries. Without this injection, Claude would hallucinate non-existent functions and wrong field names.
+
+This is **Retrieval-Augmented Generation (RAG)** — but without the retrieval layer. Classic RAG uses an embedding model to search a vector database and pull only the most relevant chunks into the prompt. That complexity is justified when the knowledge base is large (thousands of documents, full API references, multi-cloud docs). Here the entire LQL reference fits in ~100 lines, so injecting it in full on every request is simpler, faster, and equally effective.
+
+| Approach | When to use |
+|---|---|
+| **Full injection (what we do)** | Knowledge base is small and always relevant — inject everything, every time |
+| **Vector DB + RAG** | Knowledge base is large (100s of docs) — retrieve only the relevant chunks per query |
+| **Fine-tuning** | Domain knowledge is stable and extremely high-volume — bake it into the model weights |
+
+The LQL reference lives in `serve.py` and is versioned with the project — no external database, no embedding pipeline, no infrastructure to maintain.
 
 **Run-then-fix loop**: the query is actually executed (not just validated) before being returned. If the run fails (wrong field name, invalid operator, bad region filter), the error is fed back to Claude automatically — up to 3 retries. The extension receives pre-fetched rows alongside the query, with no second round-trip needed.
 
