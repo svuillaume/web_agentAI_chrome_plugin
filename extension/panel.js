@@ -238,11 +238,24 @@ function scrollLog() {
 }
 
 function _appendToLog(node, cloneForAll) {
-  // Latest pane always shows only the current exchange (cleared on new user turn)
   el('log-latest').appendChild(node);
-  // All pane gets an independent clone so both are independently scrollable
   el('log-all').appendChild(cloneForAll || node.cloneNode(true));
   scrollLog();
+}
+
+// Archive the current Latest session and start fresh for a new FortiCNAPP feature.
+// Call when opening any FortiCNAPP drawer so the previous conversation is preserved
+// in History and Latest starts clean for the new feature context.
+function startNewSession(label) {
+  if (!el('log-latest').children.length) return; // nothing to archive
+  history.length = 0; // reset AI conversation context
+
+  // Add a session-separator in log-all (History) so the boundary is visible
+  const sep = Object.assign(document.createElement('div'), { className: 'session-sep' });
+  sep.textContent = label;
+  el('log-all').appendChild(sep);
+
+  el('log-latest').innerHTML = ''; // clear Latest for the new session
 }
 
 document.querySelectorAll('.log-tab').forEach(tab => {
@@ -1056,8 +1069,8 @@ async function runCodeSec(mode) {
   }
 }
 
-el('codesec').addEventListener('click', () => runCodeSec('scan'));
-el('sbom').addEventListener('click',    () => runCodeSec('sbom'));
+el('codesec').addEventListener('click', () => { startNewSession('CodeSec'); runCodeSec('scan'); });
+el('sbom').addEventListener('click',    () => { startNewSession('SBOM');    runCodeSec('sbom'); });
 el('codesec-close').addEventListener('click', () => {
   el('codesec-panel').classList.remove('open');
 });
@@ -1069,7 +1082,7 @@ el('compliance').addEventListener('click', async () => {
   const isOpen = panel.classList.contains('open');
   panel.classList.toggle('open', !isOpen);
   el('codesec-panel').classList.remove('open');
-  if (!isOpen) loadComplianceReports();
+  if (!isOpen) { startNewSession('Compliance'); loadComplianceReports(); }
 });
 
 el('compliance-close').addEventListener('click', () => {
@@ -1212,7 +1225,7 @@ el('cve-btn').addEventListener('click', () => {
   el('codesec-panel').classList.remove('open');
   el('compliance-panel').classList.remove('open');
   el('lql-panel').classList.remove('open');
-  if (!isOpen) el('cve-input').focus();
+  if (!isOpen) { startNewSession('Attack Surface'); el('cve-input').focus(); }
 });
 
 el('cve-close').addEventListener('click', () => el('cve-panel').classList.remove('open'));
@@ -1542,7 +1555,7 @@ el('lql').addEventListener('click', async () => {
   panel.classList.toggle('open', !isOpen);
   el('codesec-panel').classList.remove('open');
   el('compliance-panel').classList.remove('open');
-  if (!isOpen) loadLqlQueries();
+  if (!isOpen) { startNewSession('Advanced Analytics'); loadLqlQueries(); }
 });
 
 el('lql-close').addEventListener('click', () => {
