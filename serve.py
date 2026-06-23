@@ -44,6 +44,7 @@ env             = load_env()
 VIRTUAL_KEY     = env.get('BIFROST_VIRTUAL_KEY', '')
 SEARXNG_URL     = env.get('SEARXNG_URL', 'http://localhost:8080')
 UPSTREAM        = env.get('ANTHROPIC_BASE_URL', 'https://your-bifrost-endpoint/anthropic')
+MODEL           = env.get('ANTHROPIC_DEFAULT_MODEL', 'claude-haiku-4-5')
 LQL_QUERIES_DIR = env.get('LQL_QUERIES_DIR', '')
 
 CORS = {
@@ -818,11 +819,15 @@ List IAM users without MFA:
 Respond with ONLY a JSON object — no markdown, no explanation:
 {"queryId": "Custom_...", "queryText": "{ source { ... } filter { ... } return distinct { ... } }"}"""
 
-        messages = [{'role': 'user', 'content': f'Objective: {objective}'}]
+        # Always embed system as first message so it works for both
+        # Anthropic-native gateways and OpenAI-compatible ones (Ollama, etc.)
+        messages = [
+            {'role': 'user', 'content': f'<system>\n{system_prompt}\n</system>\n\nObjective: {objective}'},
+        ]
+        model = MODEL or 'claude-haiku-4-5'
         req_body = json.dumps({
-            'model': 'claude-sonnet-4-6',
+            'model': model,
             'max_tokens': 2048,
-            'system': system_prompt,
             'messages': messages,
         }).encode()
 
@@ -836,14 +841,29 @@ Respond with ONLY a JSON object — no markdown, no explanation:
             },
         )
         try:
-            resp      = urllib.request.urlopen(req, timeout=30)
+            resp      = urllib.request.urlopen(req, timeout=60)
             resp_data = json.loads(resp.read())
-            raw       = resp_data['content'][0]['text'].strip()
+
+            # Handle both Anthropic native and OpenAI-compatible response shapes
+            if 'content' in resp_data and resp_data['content']:
+                # Anthropic: {"content": [{"type": "text", "text": "..."}]}
+                raw = resp_data['content'][0].get('text', '')
+            elif 'choices' in resp_data and resp_data['choices']:
+                # OpenAI / Ollama: {"choices": [{"message": {"content": "..."}}]}
+                raw = resp_data['choices'][0].get('message', {}).get('content', '')
+            else:
+                raise ValueError(f'Unrecognised response shape: {list(resp_data.keys())}')
+
+            raw = raw.strip()
             # Strip markdown code fences if model wrapped anyway
             if raw.startswith('```'):
                 raw = '\n'.join(raw.split('\n')[1:])
                 if raw.endswith('```'):
                     raw = raw[:-3].strip()
+            # Some models prepend explanatory text before the JSON — find the first '{'
+            brace = raw.find('{')
+            if brace > 0:
+                raw = raw[brace:]
             result = json.loads(raw)
             self.send_json(200, json.dumps(result).encode())
         except urllib.error.HTTPError as e:
