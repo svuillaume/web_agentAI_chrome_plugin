@@ -162,7 +162,7 @@ function greeting() {
 chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' }, ({ email }) => {
   const firstName = email ? email.split('@')[0].split('.')[0] : '';
   const name = firstName ? `, ${firstName.charAt(0).toUpperCase() + firstName.slice(1)}` : '';
-  appendTurn('ai', `**${greeting()}${name}!** — AI chat + FortiCNAPP security tools in your browser.
+  appendTurn('ai', `**${greeting()}${name}!** — I'm your Web AI chat Assistant - I also provide FortiCNAPP security tools in your browser.
 
 • 📄 **Read** / **TL;DR** — load or summarise the current page
 • 🔰 **FortiCNAPP** dropdown → Scan code, run compliance reports, search CVEs, run LQL queries
