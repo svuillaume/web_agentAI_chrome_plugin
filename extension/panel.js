@@ -1519,8 +1519,10 @@ const EXEC_REPORT_TEMPLATE = `Write the full security report using the structure
 
 function buildCveAnalysisPrompt(d, fgOutbreaks) {
   const fixVer = d.hosts.find(h => h.fix_available)?.fixed_version || 'latest';
+  const fgSearchUrl = `https://www.fortiguard.com/search?q=${encodeURIComponent(d.cveId)}`;
   const lines = [
     `Security finding data for ${d.cveId}:`,
+    `FortiGuard threat intelligence: ${fgSearchUrl}`,
     `Scope: ${d.total_affected} hosts affected, ${d.internet_exposed} internet-exposed, ${d.fixable} fixable (last ${d.period_days} days).`,
     ``,
   ];
@@ -1591,12 +1593,16 @@ async function runCveSearch() {
       const noResultEl = document.createElement('div');
       noResultEl.className = 'cve-summary';
       noResultEl.textContent = data.note || `No hosts found for ${cveId} in the selected window.`;
+      const fgSearchNoResult = document.createElement('div');
+      fgSearchNoResult.className = 'fg-search-link';
+      fgSearchNoResult.innerHTML = `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">Search FortiGuard for ${cveId}</a>`;
+      noResultEl.appendChild(fgSearchNoResult);
       if (fgOutbreaks.length) {
         const fgLink = document.createElement('a');
         fgLink.href = fgOutbreaks[0].link || `https://www.fortiguard.com/outbreak-alert?type=vulnerability`;
         fgLink.target = '_blank';
         fgLink.textContent = `FortiGuard has ${fgOutbreaks.length} outbreak alert(s) for this CVE.`;
-        fgLink.style.cssText = 'color:#cc0000;font-weight:600;margin-left:4px;';
+        fgLink.style.cssText = 'color:#cc0000;font-weight:600;display:block;margin-top:4px;';
         noResultEl.appendChild(fgLink);
       }
       appendResultCard('🔬', `CVE: ${cveId}`, noResultEl);
@@ -1614,6 +1620,12 @@ async function runCveSearch() {
     const resultsEl = document.createElement('div');
     resultsEl.className = 'cve-result-body';
     renderCveResults(data, resultsEl);
+
+    // FortiGuard search link — always present
+    const fgSearchEl = document.createElement('div');
+    fgSearchEl.className = 'fg-search-link';
+    fgSearchEl.innerHTML = `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">Search FortiGuard for ${cveId}</a>`;
+    resultsEl.appendChild(fgSearchEl);
 
     // Append FortiGuard outbreak intel to the card if available
     if (fgOutbreaks.length) {
