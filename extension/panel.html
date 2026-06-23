@@ -470,6 +470,27 @@ body {
 @keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
 .turn:last-child { border-bottom: none; }
 
+/* User turns: subtle warm tint with a left accent bar */
+.turn.turn-user {
+  background: var(--accent-bg);
+  border-left: 3px solid var(--accent);
+  padding-left: 11px;
+}
+
+/* AI turns: slightly elevated surface so they pop off the log bg */
+.turn.turn-ai {
+  background: var(--surface2);
+  border-left: 3px solid var(--border);
+  padding-left: 11px;
+}
+
+/* System / tool messages stay flat and dim */
+.turn.turn-system {
+  background: transparent;
+  border-left: 3px solid transparent;
+  padding-left: 11px;
+}
+
 .role {
   width: 26px;
   height: 26px;
@@ -499,6 +520,8 @@ body {
   line-height: 1.65;
   min-width: 0;
 }
+.turn-user .content { color: var(--text); }
+.turn-ai   .content { color: var(--text); }
 .role.system + .content { color: var(--muted); font-size: 11px; font-family: var(--mono); }
 
 .content code {

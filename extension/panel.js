@@ -237,7 +237,8 @@ function setRendered(node, html) {
 function scrollLog() { const l = el('log'); l.scrollTop = l.scrollHeight; }
 
 function appendTurn(role, text = '') {
-  const turn  = Object.assign(document.createElement('div'), { className: 'turn' });
+  const turnClass = role === 'user' ? 'turn turn-user' : role === 'ai' ? 'turn turn-ai' : 'turn turn-system';
+  const turn  = Object.assign(document.createElement('div'), { className: turnClass });
   const label = Object.assign(document.createElement('div'), {
     className: `role ${role}`, textContent: ROLE_LABELS[role] ?? role,
   });
