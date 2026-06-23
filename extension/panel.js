@@ -591,10 +591,17 @@ async function extractPageCode() {
   const ghRepo = githubRepoFromUrl(tab.url || '');
   if (ghRepo) {
     const { files, owner, repo, branch } = await fetchGithubRepoFiles(ghRepo.owner, ghRepo.repo);
+    // Build basename → [full path] map so findings can resolve the GitHub URL
+    const pathMap = {};
+    files.forEach(f => {
+      if (!f.path) return;
+      const base = f.path.split('/').pop();
+      (pathMap[base] = pathMap[base] || []).push(f.path);
+    });
     const fileList = files.map(f => `  • ${f.path || f.filename}`).join('\n');
     appendTurn('system',
       `🔍 GitHub: ${owner}/${repo} — ${files.length} file${files.length !== 1 ? 's' : ''} fetched:\n${fileList}`);
-    return { files, title: tab.title || 'page', url: tab.url || '', ghCtx: { owner, repo, branch } };
+    return { files, title: tab.title || 'page', url: tab.url || '', ghCtx: { owner, repo, branch, pathMap } };
   }
 
   // Fallback: scrape <pre> blocks from the rendered page
@@ -732,7 +739,11 @@ function renderCodeSecResults(data, mode, ghCtx) {
       const locHtml  = (() => {
         if (!locLabel) return '';
         if (ghCtx && f.file) {
-          const href = `https://github.com/${ghCtx.owner}/${ghCtx.repo}/blob/${ghCtx.branch}/${f.file}${f.line ? '#L' + f.line : ''}`;
+          const base     = f.file.split('/').pop();
+          const paths    = ghCtx.pathMap?.[base] || [];
+          // Pick the path whose suffix best matches what the scanner reported
+          const fullPath = paths.find(p => p.endsWith(f.file)) || paths[0] || f.file;
+          const href = `https://github.com/${ghCtx.owner}/${ghCtx.repo}/blob/${ghCtx.branch}/${fullPath}${f.line ? '#L' + f.line : ''}`;
           return `<span class="cs-sub"> <a class="ext-link" data-href="${href}">${esc(locLabel)}</a></span>`;
         }
         return `<span class="cs-sub"> ${esc(locLabel)}</span>`;
