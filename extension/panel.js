@@ -1424,12 +1424,24 @@ Numbered list of decisions or authorizations needed from leadership.
 
 ---
 
+## Impacted Resources Summary
+
+Always include this table. One row per affected resource from the data.
+
+| Resource Name | Type | Account / Owner | Risk Level | Status |
+|---|---|---|---|---|
+| [exact name from data] | [EC2 / S3 / IAM Role / Container / etc.] | [account or owner] | CRITICAL / HIGH / MEDIUM / LOW | Exposed / Misconfigured / Unpatched / Unused |
+
+[Repeat for every resource in the dataset. Do not summarise or group — list each one individually.]
+
+---
+
 ## Conclusion
 
 Two sentences. Restate the risk and the single most important thing to do now.
 
 ---
-Rules: Use the data provided. Name specific assets. No filler sentences. Every section must be present. Tables preferred over prose for risk data.`;
+Rules: Use the data provided. Name specific assets. No filler sentences. Every section must be present. Tables preferred over prose for risk data. The Impacted Resources Summary table is mandatory — always populate it from the data, never leave it empty.`;
 
 function buildCveAnalysisPrompt(d) {
   const fixVer = d.hosts.find(h => h.fix_available)?.fixed_version || 'latest';
