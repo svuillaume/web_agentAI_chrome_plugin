@@ -1764,22 +1764,18 @@ async function runCveSearch() {
     // Build detached results and post as a card
     const resultsEl = document.createElement('div');
     resultsEl.className = 'cve-result-body';
-    renderCveResults(data, resultsEl);
 
-    // Threat Radar + intel badges (intel already set above)
+    // ── Threat Radar card — inserted FIRST so it appears at top ──────────────
     const intelEl = document.createElement('div');
     intelEl.className = 'fg-outbreak-card';
-
     let intelHtml = '';
 
-    // Threat Radar Score
     if (intel.threatRadarScore !== undefined) {
       const score = intel.threatRadarScore;
       const col = score >= 70 ? '#cc0000' : score >= 40 ? '#e65c00' : '#4caf50';
-      intelHtml += `<div style="margin-bottom:6px"><strong>🎯 Threat Radar Score: <span style="color:${col}">${score}/100</span></strong></div>`;
+      intelHtml += `<div style="margin-bottom:6px"><strong>🎯 Threat Radar Score: <span style="color:${col};font-size:15px">${score}/100</span></strong></div>`;
     }
 
-    // Badges row: CVSS | EPSS | KEV
     const badges = [];
     if (intel.nvd?.cvssV3Score) {
       const sev = intel.nvd.cvssV3Severity || '';
@@ -1796,12 +1792,10 @@ async function runCveSearch() {
     }
     if (badges.length) intelHtml += `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${badges.join('')}</div>`;
 
-    // NVD description
     if (intel.nvd?.description) {
-      intelHtml += `<div style="font-size:10.5px;color:#333;margin-bottom:4px">${intel.nvd.description.slice(0,200)}…</div>`;
+      intelHtml += `<div style="font-size:10.5px;color:#333;margin-bottom:4px">${intel.nvd.description.slice(0, 220)}…</div>`;
     }
 
-    // FortiGuard + NVD links
     intelHtml +=
       `<div class="fg-search-link" style="margin-top:4px">` +
       `🔍 <a href="https://www.fortiguard.com/search?q=${encodeURIComponent(cveId)}" target="_blank">FortiGuard</a>` +
@@ -1810,7 +1804,10 @@ async function runCveSearch() {
       `</div>`;
 
     intelEl.innerHTML = intelHtml;
-    resultsEl.appendChild(intelEl);
+    resultsEl.appendChild(intelEl);  // TOP of card
+
+    // ── Host list ─────────────────────────────────────────────────────────────
+    renderCveResults(data, resultsEl);
 
     // Append FortiGuard outbreak alert cards
     if (fgOutbreaks.length) {
