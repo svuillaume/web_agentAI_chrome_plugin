@@ -1114,10 +1114,37 @@ el('cve-analyse').addEventListener('click', () => {
   send(true);
 });
 
+const EXEC_REPORT_TEMPLATE = `
+Produce an executive security report for a C-level audience. Use this exact structure every time:
+
+## Executive Summary
+One paragraph. Business impact first: what is at risk, what could happen, what is the financial / operational / reputational exposure. No jargon.
+
+## Risk Rating
+| Dimension | Rating | Rationale |
+|---|---|---|
+| Severity | CRITICAL / HIGH / MEDIUM / LOW | |
+| Blast Radius | (number or scope) | |
+| Likelihood of Exploit | HIGH / MEDIUM / LOW | |
+| Business Impact | (one line) | |
+
+## Key Findings
+Bullet list. Each finding: asset name, what is wrong, why it matters to the business. Lead with the worst.
+
+## Immediate Actions (Next 24–72 h)
+Numbered list. Specific, actionable, owner-assignable. Include the patch version or config change.
+
+## Strategic Recommendations (30-day plan)
+Bullet list. Process or architectural improvements to prevent recurrence.
+
+---
+Rules: Be concise. No filler. Prioritise business consequence over technical detail. Flag any internet-exposed or customer-facing assets as critical.`;
+
 function buildCveAnalysisPrompt(d) {
   const fixVer = d.hosts.find(h => h.fix_available)?.fixed_version || 'latest';
   const lines = [
-    `${d.cveId} — ${d.total_affected} hosts affected, ${d.internet_exposed} internet-exposed, ${d.fixable} fixable (last ${d.period_days} days).`,
+    `Security finding data for ${d.cveId}:`,
+    `Scope: ${d.total_affected} hosts affected, ${d.internet_exposed} internet-exposed, ${d.fixable} fixable (last ${d.period_days} days).`,
     ``,
   ];
 
@@ -1125,18 +1152,14 @@ function buildCveAnalysisPrompt(d) {
     const flags = [
       h.host_exposed      ? 'HOST-EXPOSED'      : '',
       h.container_exposed ? 'CONTAINER-EXPOSED' : '',
-      h.fix_available     ? `fix→${h.fixed_version}` : '',
+      h.fix_available     ? `fix→${h.fixed_version || fixVer}` : '',
     ].filter(Boolean).join(' ');
     lines.push(`${i + 1}. ${h.hostname} [${h.severity}] risk:${h.host_risk_score.toFixed(1)} ${flags}`);
     h.packages.forEach(p  => lines.push(`   pkg: ${p.name} ${p.version}`));
-    h.containers.forEach(c => lines.push(`   ctr: ${c.name} ${c.internet_exposed ? '🌐' : ''}`));
+    h.containers.forEach(c => lines.push(`   ctr: ${c.name}${c.internet_exposed ? ' 🌐 INTERNET-EXPOSED' : ''}`));
   });
 
-  lines.push(``, `Be succinct. Provide:`);
-  lines.push(`1. Top 3 highest-risk hosts and why.`);
-  lines.push(`2. Remediation: patch to ${fixVer}.`);
-  lines.push(`3. Any internet-exposed containers — flag as critical.`);
-
+  lines.push(``, EXEC_REPORT_TEMPLATE);
   return lines.join('\n');
 }
 
@@ -1397,9 +1420,9 @@ el('lql-run').addEventListener('click', async () => {
     const sample = rows.slice(0, 50).map(r => keys.map(k => `${k}=${r[k] ?? ''}`).join(' | ')).join('\n');
     history.push({
       role: 'user',
-      content: `I ran LQL query "${query.id}" and got ${count} rows. Here is a sample:\n\n${sample}\n\nAnalyse these findings.`,
+      content: `Security finding data from LQL query "${query.id}" — ${count} rows:\n\n${sample}\n\n${EXEC_REPORT_TEMPLATE}`,
     });
-    history.push({ role: 'assistant', content: 'Results loaded.' });
+    send(true);
   } catch (e) {
     statusEl.textContent = `✗ ${e.message}`;
     statusEl.className   = 'err';
@@ -1524,9 +1547,9 @@ el('lql-gen-run').addEventListener('click', async () => {
     const sample = rows.slice(0, 50).map(r => keys.map(k => `${k}=${r[k] ?? ''}`).join(' | ')).join('\n');
     history.push({
       role: 'user',
-      content: `I generated and ran an LQL query for "${label}" and got ${count} rows. Here is a sample:\n\n${sample}\n\nAnalyse these findings.`,
+      content: `Security finding data from LQL query "${label}" — ${count} rows:\n\n${sample}\n\n${EXEC_REPORT_TEMPLATE}`,
     });
-    history.push({ role: 'assistant', content: 'Results loaded.' });
+    send(true);
   } catch (e) {
     statusEl.textContent = `✗ ${e.message}`;
     statusEl.className   = 'err';
