@@ -1,0 +1,165 @@
+
+
+Looking at this pom.xml, I don't see Paramiko (a Python SSH library) anywhere — it's a Java/Maven project. However, there is a Log4j vulnerability (CVE-2021-44228) with log4j-core version 2.14.1. I'll address what's actually present.
+
+Here's the corrected pom.xml with Log4j upgraded to a safe version:
+
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>log4shell</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <name>log4shell</name>
+    <packaging>war</packaging>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <junit.version>5.7.1</junit.version>
+        <log4j.version>2.17.2</log4j.version>
+    </properties>
+
+    <dependencies>
+        <!-- Servlet API -->
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- JUnit for testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Log4j dependencies (upgraded to fix CVE-2021-44228 & related CVEs) -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- WAR packaging -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.3.1</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+
+What changed and why:
+
+- Upgraded log4j-core and log4j-api from 2.14.1 to 2.17.2 — Version 2.14.1 is vulnerable to CVE-2021-44228 (Log4Shell, CVSS 10.0) and related attacks. Version 2.17.2 is the latest safe release for Java 8 that fixes all known CVEs in the Log4j 2.x line CVE-2021-44228 - NVD. Note: Log4j 2.17.x is the final branch supporting Java 8; later versions require Java 9+.
+
+- Extracted version to a property (<log4j.version>2.17.2</log4j.version>) to keep both Log4j dependencies in sync and simplify future upgrades.
+⎘ Copy
+
+
+Looking at this pom.xml, I don't see Paramiko (a Python SSH library) anywhere — it's a Java/Maven project. However, there is a Log4j vulnerability (CVE-2021-44228) with log4j-core version 2.14.1. I'll address what's actually present.
+
+Here's the corrected pom.xml with Log4j upgraded to a safe version:
+
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>log4shell</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <name>log4shell</name>
+    <packaging>war</packaging>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <junit.version>5.7.1</junit.version>
+        <log4j.version>2.17.2</log4j.version>
+    </properties>
+
+    <dependencies>
+        <!-- Servlet API -->
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- JUnit for testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Log4j dependencies (upgraded to fix CVE-2021-44228 & related CVEs) -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- WAR packaging -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.3.1</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+
+What changed and why:
+
+- Upgraded log4j-core and log4j-api from 2.14.1 to 2.17.2 — Version 2.14.1 is vulnerable to CVE-2021-44228 (Log4Shell, CVSS 10.0) and related attacks. Version 2.17.2 is the latest safe release for Java 8 that fixes all known CVEs in the Log4j 2.x line CVE-2021-44228 - NVD. Note: Log4j 2.17.x is the final branch supporting Java 8; later versions require Java 9+.
+
+- Extracted version to a property (<log4j.version>2.17.2</log4j.version>) to keep both Log4j dependencies in sync and simplify future upgrades.

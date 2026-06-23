@@ -315,32 +315,12 @@ function appendTurn(role, text = '') {
 
   // ai turn: body is live-updated during streaming — keep a reference in both panes
   if (role === 'ai') {
-    const makeCopyBtn = (targetBody) => {
-      const btn = Object.assign(document.createElement('button'), {
-        className: 'rc-copy-btn',
-        textContent: '⎘ Copy',
-        title: 'Copy response',
-      });
-      btn.addEventListener('click', () => {
-        navigator.clipboard.writeText(targetBody.innerText || targetBody.textContent || '');
-        btn.textContent = '✓ Copied';
-        setTimeout(() => { btn.textContent = '⎘ Copy'; }, 1500);
-      });
-      return btn;
-    };
+    const bodyClone  = Object.assign(document.createElement('div'), { className: 'content' });
+    const colClone   = Object.assign(document.createElement('div'), { className: 'bubble-col' });
+    const lblClone   = Object.assign(document.createElement('div'), { className: 'turn-label', textContent: 'Web AI Agent' });
+    const avatarClone = Object.assign(document.createElement('div'), { className: 'role ai', textContent: 'AI' });
+    const turnClone  = Object.assign(document.createElement('div'), { className: 'turn turn-ai' });
 
-    const copyBtn      = makeCopyBtn(body);
-    body._copyBtn      = copyBtn; // stored so setRendered can re-append it after replaceChildren wipes the DOM
-    const bodyClone    = Object.assign(document.createElement('div'), { className: 'content' });
-    const copyBtnClone = makeCopyBtn(bodyClone);
-    bodyClone._copyBtn = copyBtnClone;
-    const colClone     = Object.assign(document.createElement('div'), { className: 'bubble-col' });
-    const lblClone     = Object.assign(document.createElement('div'), { className: 'turn-label', textContent: 'Web AI Agent' });
-    const avatarClone  = Object.assign(document.createElement('div'), { className: 'role ai', textContent: 'AI' });
-    const turnClone    = Object.assign(document.createElement('div'), { className: 'turn turn-ai' });
-
-    body.appendChild(copyBtn);
-    bodyClone.appendChild(copyBtnClone);
     col.append(lbl, body);
     colClone.append(lblClone, bodyClone);
     turnClone.append(avatarClone, colClone);
