@@ -55,3 +55,7 @@ fi
 echo ""
 echo -e "  ${GREEN}✔ All stopped and cleaned up${NC}"
 echo ""
+echo "  To fully remove the Chrome extension:"
+echo "    1. Open chrome://extensions in your browser"
+echo "    2. Find 'Web AI Agent' and click Remove"
+echo ""
