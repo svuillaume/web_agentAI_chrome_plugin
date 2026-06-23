@@ -816,10 +816,10 @@ function severityOrder(s) {
 }
 
 function renderCodeSecResults(data, mode, ghCtx, scannedFiles) {
-  // Close the drawer and render results into the chat log
   el('codesec-panel').classList.remove('open');
   const body = document.createElement('div');
   body.className = 'cs-result-body';
+  if (!el('log-latest')) { console.error('log-latest missing'); return; }
 
   if (mode === 'sbom') {
     if (data.error) {
@@ -1018,7 +1018,12 @@ async function runCodeSec(mode) {
     });
     if (!res.ok) throw new Error(`Scan endpoint returned ${res.status}`);
     const data = await res.json();
-    renderCodeSecResults(data, mode, ghCtx, files);
+    try {
+      renderCodeSecResults(data, mode, ghCtx, files);
+    } catch (renderErr) {
+      console.error('renderCodeSecResults threw:', renderErr);
+      appendTurn('system', `CodeSec render error: ${renderErr.message}`);
+    }
 
     if (mode !== 'sbom') {
       const total = (data.vulns?.length || 0) + (data.weaknesses?.length || 0) + (data.secrets?.length || 0);
@@ -1027,6 +1032,7 @@ async function runCodeSec(mode) {
       setStatus('sbom ready', 'ok');
     }
   } catch (e) {
+    console.error('CodeSec error:', e);
     appendTurn('system', `CodeSec error: ${e.message}`);
     setStatus('error', 'err');
   } finally {
