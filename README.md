@@ -1,18 +1,21 @@
-# FortiCNAPP AI Assistant — Chrome Extension
+# Web Agent AI Assistant — Chrome Extension
 
-A Chrome side-panel extension that brings **Claude AI** and **FortiCNAPP** security tools directly into your browser.
+A Chrome side-panel extension that brings **AI GW** and **FortiCNAPP** security tools directly into your browser.
 
 ---
 
 ## What is this?
 
-This extension is a **FortiCNAPP-connected AI assistant** embedded as a Chrome side panel. It combines three things:
+This extension is a **FortiCNAPP Agent AI Cloud Security assistant** embedded as a Chrome side panel that connects to your best GW API Provider. 
 
-1. **AI chat** via a [Bifrost AI Gateway](https://bifrost.fabriclab.ca) — your private Claude endpoint that keeps API keys out of browser extensions and enforces usage policies
+It combines three things:
+
+1. **AI chat** 
 2. **Live web search** via a local [SearXNG](https://github.com/searxng/searxng) instance — private, no tracking, runs on your machine
 3. **FortiCNAPP security tools** built into the toolbar:
    - 🛡 **CodeSec** — SCA + SAST scan on code found on any page
    - 📋 **Compliance** — generate PDF reports for 54 frameworks (CIS, NIST, PCI DSS, SOC 2, HIPAA, ISO 27001…) and ask AI questions about them
+     note: will enable buttons only with FortiCNAPP API Key
 
 All traffic stays local or goes to your own gateway — nothing is sent to third-party AI services.
 
@@ -21,7 +24,7 @@ All traffic stays local or goes to your own gateway — nothing is sent to third
 ## Requirements
 
 - Google Chrome (or Chromium)
-- A **Bifrost AI Gateway** — URL + virtual key (`sk-bf-…`)
+- A **AI Gateway** — URL + virtual key 
 - **Python 3.8+** — to run `serve.py` (local proxy for CORS, search, and FortiCNAPP endpoints)
 - **Docker Desktop** — to run SearXNG (or use Python venv instead, see below)
 - `lacework` CLI — for CodeSec and Compliance features (optional but recommended)
