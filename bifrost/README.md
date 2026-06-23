@@ -1,123 +1,110 @@
 # Web AI Agent
 
-A browser-native AI security assistant that runs as a Chrome side panel. Combines a Claude-powered chat interface with live FortiCNAPP (Lacework) cloud security data — CVE attack surface, LQL queries, compliance reports, and code scanning — all accessible while you browse.
+Browser-native AI security assistant — Claude chat + live FortiCNAPP cloud security data in a Chrome side panel.
 
 ## Architecture
 
 ```
 Chrome Extension (side panel)
-        │
-        ├── Chat & tools → AI Gateway (Bifrost / Portkey / LiteLLM / Helicone)
-        │                         └── Claude API (haiku / sonnet / opus)
-        │
-        └── Security tools → serve.py (localhost:8765)
-                                  └── FortiCNAPP REST API
+  │
+  ├─ Chat ──────────► AI Gateway  (Bifrost / Portkey / LiteLLM / Helicone)
+  │                        └──► Claude API
+  │
+  └─ Security tools ► serve.py  localhost:8765
+                           ├──► FortiCNAPP REST API
+                           ├──► lacework CLI  (SCA/SAST, SBOM, Compliance PDF)
+                           └──► SearXNG       localhost:8080
 ```
 
-**serve.py** is a local Python stdlib HTTP server (no dependencies beyond standard library). It proxies the AI gateway, bridges FortiCNAPP API calls, and serves the extension's security endpoints.
+`serve.py` is a zero-dependency Python stdlib HTTP server. It auto-detects `~/.lacework.toml` at startup and exposes `lw_ready` to the extension — security tool buttons are greyed out when credentials are absent.
 
 ## Features
 
-### Chat
-- Streaming Claude chat via any LLM-native AI gateway
-- **📄 Read** — load the current page into context
-- **TL;DR** — summarise the page in 3–5 bullets with source links
-- Web search via SearXNG (self-hosted, privacy-preserving)
-
-### Cloud Security (FortiCNAPP)
-- **🚨 CVE** — attack surface assessment: search any CVE across hosts and containers, ranked by internet exposure and host risk score
-- **🛡 Scan** — FortiCNAPP SCA + SAST scan on code found on the current page
-- **📋 Compliance** — generate and download FortiCNAPP compliance PDF reports
-- **🔍 LQL — Saved queries** — run pre-built Lacework Query Language queries against your live tenant
-- **✨ LQL — Generate** — describe what you want to find in plain English; Claude builds and runs the LQL query for you
+| Button | Requires | What it does |
+|---|---|---|
+| 📄 Read | — | Load current page into chat context |
+| TL;DR | — | Summarise page in 3–5 bullets with source links |
+| 🛡 Scan | 🔑 FortiCNAPP | SCA + SAST on code found on this page |
+| 📋 Compliance | 🔑 FortiCNAPP | Generate + download compliance PDF |
+| 🚨 CVE | 🔑 FortiCNAPP | Attack surface: hosts & containers by internet exposure |
+| 🔍 LQL | 🔑 FortiCNAPP | Run saved or AI-generated LQL queries |
+| ✕ Clear | — | Clear chat history |
 
 ## AI Gateway Compatibility
 
-The extension works with any LLM-native AI gateway that exposes an Anthropic-compatible `/v1/messages` endpoint. Select your gateway in the config bar — the extension adapts headers automatically.
+Set your gateway in the config bar — headers are built automatically.
 
-| Gateway | Auth header | Key placeholder |
+| Gateway | Auth sent | Key format |
 |---|---|---|
-| **⚡ Bifrost** | `x-api-key: sk-bf-…` | Virtual key |
-| **Portkey** | `x-portkey-api-key: pk-…` | Portkey API key |
-| **LiteLLM** | `Authorization: Bearer sk-…` | Bearer token |
-| **Helicone** | `x-api-key` (Anthropic) + `helicone-auth` | Anthropic key + Helicone key |
+| ⚡ Bifrost | `x-api-key` | `sk-bf-…` |
+| Portkey | `x-portkey-api-key` | `pk-…` |
+| LiteLLM | `Authorization: Bearer` | `sk-…` |
+| Helicone | `x-api-key` + `helicone-auth: Bearer` | Anthropic key + Helicone key |
+
+Gateway choice and model selection persist across Chrome sessions (`chrome.storage.local`). The API key is kept in session RAM only — cleared on Chrome close.
 
 ## Setup
 
-### 1. Start the backend
+### 1. Credentials
 
-```bash
-cd bifrost
-cp .env.example .env   # fill in your credentials
-docker compose up -d
 ```
-
-`.env` fields:
-```
-ANTHROPIC_BASE_URL=https://bifrost.fabriclab.ca/anthropic
+# .env  (copy from .env.example)
+ANTHROPIC_BASE_URL=https://bifrost.yourhost.com/anthropic
 BIFROST_VIRTUAL_KEY=sk-bf-…
-ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-7
+ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6
 LQL_QUERIES_DIR=/lql_queries
 ```
 
-### 2. LQL queries directory (optional)
+FortiCNAPP credentials go in `~/.lacework.toml` (standard `lacework configure` output). The container mounts it read-only.
 
-Mount your `lql_queries/` folder in `docker-compose.yml`:
-```yaml
-volumes:
-  - ~/claude_cnapp/lql/lql_queries:/lql_queries:ro
+### 2. Start the backend
+
+```bash
+docker compose up -d
 ```
 
-### 3. Install the Chrome extension
+Two containers start: `bifrost-serve` (port 8765) and `bifrost-search` / SearXNG (port 8080).
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked** → select the `extension/` folder
-4. Click the extension icon in the toolbar to open the side panel
-
-The URL and key auto-fill from `serve.py /config` on first open.
-
-## FortiCNAPP credentials
-
-The backend reads Lacework credentials from `~/.lacework.toml` (mounted read-only into the container). Standard `lacework configure` setup works.
-
-## LQL Query Language
-
-LQL queries in `lql_queries/*.yaml` use this structure:
-
-```lql
-{
-    source { LW_CFG_AWS_EC2_INSTANCES }
-    filter { RESOURCE_REGION NOT IN ('ca-central-1', 'ca-west-1') }
-    return distinct {
-        ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY,
-        RESOURCE_REGION, RESOURCE_TYPE, SERVICE,
-        'Instance outside Canada' as COMPLIANCE_FAILURE_REASON
-    }
-}
+Any change to `serve.py` requires a rebuild:
+```bash
+docker compose up --build -d bifrost
 ```
 
-The **✨ Generate** tab lets you describe the objective in plain English — Claude writes the query, shows it for review, then runs it against your live tenant.
+### 3. LQL queries (optional)
 
-## Security model
+Pre-built `.yaml` queries are mounted from `~/claude_cnapp/lql/lql_queries/` (see `docker-compose.yml`). The **✨ Generate** tab lets you skip this entirely — describe what you want, Claude writes and runs the query.
 
-| What | Storage | Lifetime |
+### 4. Load the extension
+
+1. `chrome://extensions` → enable **Developer mode**
+2. **Load unpacked** → select the `extension/` folder
+3. Click the toolbar icon to open the side panel
+
+URL and key auto-fill from `/config` on first open.
+
+## Backend endpoints
+
+| Method | Path | Purpose |
 |---|---|---|
-| Gateway URL + key | `chrome.storage.session` (RAM) | Cleared on Chrome close |
-| Gateway choice, model | `chrome.storage.local` | Persists (not sensitive) |
-| Chat history | JS memory | Cleared on panel close |
-| FortiCNAPP credentials | `~/.lacework.toml` on host | Never enter the extension |
-
-The key never touches disk. Re-enter it once per Chrome session.
+| GET | `/config` | Returns gateway URL, key, `lw_ready` |
+| GET | `/search?q=…` | SearXNG proxy (CORS bypass) |
+| POST | `/codesec` | lacework SCA + SAST scan |
+| POST | `/sbom` | CycloneDX SBOM via lacework |
+| POST | `/compliance` | Compliance PDF; cached at `/compliance/latest-text` |
+| GET | `/lql/queries` | List `.yaml` files from `LQL_QUERIES_DIR` |
+| POST | `/lql/run` | Execute LQL against FortiCNAPP |
+| POST | `/lql/cve` | CVE cross-reference: hosts + containers |
+| POST | `/lql/generate` | Plain-English → LQL via Claude |
 
 ## Files
 
 ```
-serve.py              Local proxy + FortiCNAPP API bridge
-docker-compose.yml    bifrost-serve + searxng containers
+serve.py              Backend — proxy, FortiCNAPP bridge, LQL engine
+docker-compose.yml    bifrost-serve + searxng
+Dockerfile
 extension/
-  manifest.json       Extension config, permissions, CSP
-  panel.html          Side panel UI (two-row header, chip buttons, drawers)
-  panel.js            All logic: gateway auth, streaming, LQL, CVE, CodeSec
+  manifest.json
+  panel.html          Side panel UI
+  panel.js            Gateway auth, streaming, LQL, CVE, CodeSec logic
   background.js       Service worker — opens side panel on icon click
 ```

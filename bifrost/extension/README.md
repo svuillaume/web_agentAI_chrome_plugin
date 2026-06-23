@@ -1,68 +1,57 @@
 # Web AI Agent — Chrome Extension
 
-A browser-native AI security assistant. Opens as a Chrome side panel and stays visible while you browse.
+Claude chat side panel with live FortiCNAPP security tools, LQL query runner, and AI gateway compatibility.
 
 ## Install
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked** → select this `extension/` folder
-4. Click the extension icon in the toolbar to open the side panel
+1. `chrome://extensions` → enable **Developer mode**
+2. **Load unpacked** → select this `extension/` folder
+3. Click the toolbar icon to open the side panel
 
-The **url** and **key** fields auto-fill from `serve.py` on first open (requires the Docker backend running on `localhost:8765`).
+Requires the Docker backend running on `localhost:8765` (see root `README.md`).
 
 ## Config bar
 
 | Field | Purpose |
 |---|---|
 | Gateway | AI gateway type — sets auth headers automatically |
-| url | Base URL of your gateway (e.g. `https://bifrost.fabriclab.ca/anthropic`) |
-| key | API / virtual key for the selected gateway |
-| model | Claude model to use |
+| url | Gateway base URL |
+| key | API key for the selected gateway |
+| model | Claude model |
 
-### Supported gateways
+**Gateway → header mapping:**
 
-| Gateway | url example | key format |
-|---|---|---|
-| ⚡ Bifrost | `https://bifrost.fabriclab.ca/anthropic` | `sk-bf-…` |
-| Portkey | `https://api.portkey.ai` | `pk-…` |
-| LiteLLM | `https://litellm.yourhost.com` | `sk-…` |
-| Helicone | `https://anthropic.helicone.ai` | Anthropic key (`sk-ant-…`) |
+| Gateway | Header |
+|---|---|
+| ⚡ Bifrost | `x-api-key: sk-bf-…` |
+| Portkey | `x-portkey-api-key: pk-…` |
+| LiteLLM | `Authorization: Bearer sk-…` |
+| Helicone | `x-api-key` (Anthropic) + `helicone-auth: Bearer` (Helicone) |
 
-## Action chips
+Gateway choice and model persist across Chrome sessions. The API key is session-RAM only.
+
+## Security tools
+
+Buttons greyed out when `~/.lacework.toml` credentials are not detected by the backend.
 
 | Button | What it does |
 |---|---|
-| 📄 Read | Load the current page into chat context |
-| TL;DR | Summarise the page in 3–5 bullets with source links |
-| 🛡 Scan | FortiCNAPP SCA + SAST scan on code found on this page |
-| 📋 Compliance | Generate a FortiCNAPP compliance PDF report |
-| 🔍 LQL | Run saved or AI-generated LQL queries against FortiCNAPP |
-| 🚨 CVE | Search a CVE across hosts/containers by internet exposure |
-| ✕ Clear | Clear chat history |
+| 🛡 Scan | FortiCNAPP SCA + SAST on code found on this page |
+| 📋 Compliance | Generate + download compliance PDF |
+| 🚨 CVE | Attack surface: search a CVE across hosts & containers by internet exposure |
+| 🔍 LQL | Run saved or AI-generated LQL queries |
 
-## LQL drawer — two tabs
+## LQL drawer
 
-**Saved queries** — dropdown of `.yaml` files from `lql_queries/` (served by `localhost:8765`). Select one and click ▶ Run.
+**Saved queries** — pick a `.yaml` from the dropdown, click ▶ Run.
 
-**✨ Generate** — type a plain-English objective (e.g. "EC2 instances outside Canada"), press Build. Claude writes the LQL, shows it for review, then you click ▶ Run to execute it live.
-
-## Security model
-
-| What | Storage | Lifetime |
-|---|---|---|
-| Gateway URL + key | `chrome.storage.session` (RAM) | Cleared on Chrome close |
-| Gateway choice, model | `chrome.storage.local` | Persists |
-| Chat history | JS memory | Cleared on panel close |
-
-The key never touches disk.
+**✨ Generate** — type a plain-English objective, press **Build**. Claude writes the LQL and shows it for review. Click ▶ Run to execute.
 
 ## Files
 
 ```
-manifest.json   Extension config, permissions, CSP
+manifest.json   MV3 config, permissions, CSP
 background.js   Service worker — opens side panel on icon click
-panel.html      UI: two-row header, chip action bar, drawer panels
-panel.js        All logic: gateway auth, streaming, LQL, CVE, CodeSec
-icon*.png       16 / 48 / 128 px icons
+panel.html      UI: config bar, chip buttons, chat log, LQL drawer
+panel.js        All logic: gateway headers, streaming, LQL, CVE, CodeSec
 ```
