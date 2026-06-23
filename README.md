@@ -38,7 +38,7 @@ The script handles everything interactively:
 
 1. Creates `.env` from template if missing — prompts for `ANTHROPIC_BASE_URL` and `BIFROST_VIRTUAL_KEY` only if not already set
 2. Detects if port 8080 is occupied — offers to kill the process
-3. Checks Docker: if running → starts SearXNG + Bifrost containers; if not → falls back to Python venv
+3. Checks Docker: if running → starts SearXNG + Web AI Agent containers; if not → falls back to Python venv
 4. Waits for both services to be healthy
 5. Prints **`✔ Web search tool ready!`** when done
 
@@ -52,7 +52,7 @@ On Windows: `setup.ps1`
 
 | Variable | Description |
 |---|---|
-| `ANTHROPIC_BASE_URL` | AI gateway endpoint, e.g. `https://bifrost.yourhost.com/anthropic` |
+| `ANTHROPIC_BASE_URL` | AI gateway endpoint, e.g. `https://your-gateway.example.com/anthropic` |
 | `BIFROST_VIRTUAL_KEY` | Gateway virtual key (`sk-bf-…`) |
 | `ANTHROPIC_DEFAULT_MODEL` | Model for chat (default: `claude-haiku-4-5-20251001`) |
 | `SEARXNG_URL` | Set to `http://searxng:8080` for Docker, `http://localhost:8080` for Python-direct |
@@ -66,7 +66,7 @@ FortiCNAPP credentials: run `lacework configure` — stored in `~/.lacework.toml
 
 ```bash
 docker compose up -d                       # start all services
-docker compose up --build -d bifrost       # rebuild after serve.py / chatbox.html changes
+docker compose up --build -d webai         # rebuild after serve.py / chatbox.html changes
 docker compose down                        # stop everything
 ```
 

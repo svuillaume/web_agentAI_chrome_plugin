@@ -2,9 +2,9 @@
 """
 Local proxy + static server for chatbox.html and the Chrome extension.
   GET  /              → serves chatbox.html
-  GET  /config        → returns Bifrost URL + key as JSON
+  GET  /config        → returns gateway URL + key as JSON
   GET  /search?q=...  → proxies SearXNG search (CORS bypass for the extension)
-  POST /proxy/v1/*    → proxies to Bifrost upstream
+  POST /proxy/v1/*    → proxies to gateway upstream
   POST /codesec       → runs lacework SCA+SAST on submitted code snippet
   POST /sbom          → runs lacework SCA and returns CycloneDX SBOM JSON
   GET  /lql/queries   → lists saved LQL YAML files from LQL_QUERIES_DIR
@@ -43,7 +43,7 @@ def load_env():
 env             = load_env()
 VIRTUAL_KEY     = env.get('BIFROST_VIRTUAL_KEY', '')
 SEARXNG_URL     = env.get('SEARXNG_URL', 'http://localhost:8080')
-UPSTREAM        = env.get('ANTHROPIC_BASE_URL', 'https://your-bifrost-endpoint/anthropic')
+UPSTREAM        = env.get('ANTHROPIC_BASE_URL', 'https://your-gateway-endpoint/anthropic')
 MODEL           = env.get('ANTHROPIC_DEFAULT_MODEL', 'claude-haiku-4-5')
 LQL_QUERIES_DIR = env.get('LQL_QUERIES_DIR', '')
 
@@ -138,7 +138,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def serve_config(self):
         body = json.dumps({
-            'bifrost_url': env.get('ANTHROPIC_BASE_URL', ''),
+            'gateway_url': env.get('ANTHROPIC_BASE_URL', ''),
             'api_key':     VIRTUAL_KEY,
             'searxng_url': SEARXNG_URL,
             'lw_ready':    LW_READY,
@@ -153,7 +153,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         url = f"{SEARXNG_URL}/search?q={urllib.parse.quote(query)}&format=json&language=en"
         try:
-            req  = urllib.request.Request(url, headers={'User-Agent': 'BifrostChat/1.0'})
+            req  = urllib.request.Request(url, headers={'User-Agent': 'WebAIAgent/1.0'})
             resp = urllib.request.urlopen(req, timeout=10)
             self.send_json(200, resp.read())
         except urllib.error.HTTPError as e:
@@ -212,7 +212,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, 'Expected JSON {files:[{filename,code}]}')
             return
 
-        tmpdir = tempfile.mkdtemp(prefix='bifrost-codesec-')
+        tmpdir = tempfile.mkdtemp(prefix='webai-codesec-')
         try:
             self._write_files(tmpdir, payload)
             # Collect submitted filenames for the response
@@ -302,7 +302,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, 'Expected JSON {files:[{filename,code}]}')
             return
 
-        tmpdir = tempfile.mkdtemp(prefix='bifrost-sbom-')
+        tmpdir = tempfile.mkdtemp(prefix='webai-sbom-')
         try:
             self._write_files(tmpdir, payload)
 
@@ -352,6 +352,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
         resp = urllib.request.urlopen(req, timeout=15)
         token_data = json.loads(resp.read())
         return token_data['token'], base_url
+
+    def _lw_evaluator_id(self, token, base_url, query_text):
+        """Return the first matching evaluatorId for cloud config datasources.
+
+        LW_CFG_AWS_* / LW_CFG_AZURE_* / LW_CFG_GCP_* queries require an evaluatorId
+        pointing to the cloud integration.  Workload and CloudTrail datasources return None.
+        """
+        qt_upper = query_text.upper()
+        if   'LW_CFG_AWS_'   in qt_upper: prefix = 'AWS'
+        elif 'LW_CFG_AZURE_' in qt_upper: prefix = 'AZURE'
+        elif 'LW_CFG_GCP_'   in qt_upper: prefix = 'GCP'
+        else:                              return None
+        headers = {'Authorization': f'Bearer {token}'}
+        # Try multiple possible endpoint names across FortiCNAPP API versions
+        for url in [
+            f'{base_url}/api/v2/CloudAccounts',
+            f'{base_url}/api/v2/Integrations',
+        ]:
+            try:
+                resp = urllib.request.urlopen(
+                    urllib.request.Request(url, headers=headers), timeout=10)
+                items = json.loads(resp.read()).get('data', [])
+                for item in items:
+                    item_type = (item.get('type') or '').upper()
+                    if prefix in item_type:
+                        guid = (item.get('intgGuid') or item.get('guid')
+                                or item.get('id') or item.get('integrationGuid'))
+                        if guid:
+                            return guid
+            except Exception:
+                continue
+        return None
 
     def _lw_alert_channel(self, token, base_url):
         """Return the first available alert channel guid from the tenant."""
@@ -433,7 +465,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # Create temp ReportConfiguration
         cfg_body = json.dumps({
-            'name':         f'bifrost-tmp-{fw_guid[:8]}',
+            'name':         f'webai-tmp-{fw_guid[:8]}',
             'format':       'PDF',
             'type':         'Compliance',
             'templateGuid': fw_guid,
@@ -738,7 +770,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json(200, json.dumps({'queries': queries}).encode())
 
     def serve_lql_generate(self):
-        """Accept {objective}, call Claude via Bifrost, return {queryText, queryId}."""
+        """Accept {objective}, call Claude via gateway, return {queryText, queryId}."""
         try:
             payload = json.loads(self._read_body())
         except json.JSONDecodeError:
@@ -751,73 +783,195 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if not UPSTREAM or not VIRTUAL_KEY:
-            self.send_json(503, json.dumps({'error': 'Bifrost URL or virtual key not configured'}).encode())
+            self.send_json(503, json.dumps({'error': 'Gateway URL or virtual key not configured'}).encode())
             return
 
         system_prompt = """\
-You are a FortiCNAPP LQL expert. Generate a single valid LQL query for the given objective.
+You are a FortiCNAPP LQL (Lacework Query Language) expert. Generate a single valid LQL query for the given objective.
 
-━━ IMPORTANT ROUTING RULE ━━
-If the objective involves CVE vulnerabilities (e.g. "hosts with CVE-xxx", "vulnerable hosts", "patch exposure"), do NOT generate an LQL query. Instead respond with ONLY this JSON:
+━━ CVE ROUTING RULE ━━
+If the objective involves CVE vulnerabilities (e.g. "hosts with CVE-xxx", "vulnerable hosts", "container images with vulnerabilities", "patch exposure"), do NOT generate LQL. Respond ONLY with:
 {"queryId": "USE_CVE_TAB", "queryText": "", "note": "CVE vulnerability data is not available in LQL. Use the CVE tab in this panel instead — it queries the FortiCNAPP Vulnerabilities API directly and shows hosts ranked by internet exposure and risk score."}
 
-━━ VALID DATASOURCES ━━
-Configuration (AWS):
-  LW_CFG_AWS_S3                              — S3 buckets (fields: ACCOUNT_ID, ACCOUNT_ALIAS, ARN, RESOURCE_REGION, RESOURCE_TAGS)
-  LW_CFG_AWS_S3_GET_BUCKET_ENCRYPTION        — S3 encryption settings
+━━ LQL SYNTAX ━━
+Structure:       { source { DATASOURCE } filter { conditions } return distinct { columns } }
+Multi-source:    { source { DS_A a WITH DS_B b ON b.KEY = a.KEY } ... }   — left outer join
+Array expand:    { source { DS d array_to_rows(d.FIELD:arraypath) as elem } ... }
+
+Comparison:      =  !=  <  <=  >  >=  IS NULL  IS NOT NULL  IS JSON NULL
+Pattern match:   FIELD LIKE 'a%'  /  FIELD ILIKE 'a%'  /  FIELD RLIKE 'regex'
+Multi-pattern:   FIELD LIKE ANY ('a%', '%b')   — also ILIKE ANY, RLIKE ANY
+Set:             FIELD IN (v1, v2)  /  FIELD NOT IN (v1, v2)
+Range:           FIELD BETWEEN v1 AND v2
+Logic:           AND  OR  NOT
+CASE:            CASE WHEN cond THEN val ELSE other END
+Cast:            FIELD:json.nested.key::String   — types: String, Number, Boolean
+
+CRITICAL RULES — violations cause parse errors:
+- NEVER use array wildcard syntax [*] or [0] — LQL does NOT support array indexing in filters
+  BAD: RESOURCE_CONFIG:BlockDeviceMappings[*].Ebs.Encrypted::String
+  GOOD: query a dedicated per-resource datasource (e.g. LW_CFG_AWS_EC2_VOLUMES) or use array_to_rows()
+- NEVER use CONTAINS() function — use LIKE '%value%' instead
+- RLIKE: keyword form only — FIELD RLIKE 'regex'   (never RLIKE(field, 'regex'))
+- Null: test with IS NULL / IS NOT NULL, never = null
+- IS JSON NULL: tests for JSON-level null (distinct from SQL null)
+- Keywords are case-insensitive; datasource names and field names are CASE-SENSITIVE
+- Reserved identifiers (cannot be aliases): EXPR, JOIN, LIMIT, OUTER, PARAMINFO, PROPERTIES, SELECT, SQL, TYPE, VARIANT, WHERE
+- return distinct deduplicates rows (equivalent to SELECT DISTINCT)
+- String literals: use single quotes inside LQL query text
+
+━━ COMMON AWS CONFIG FIELDS ━━
+All LW_CFG_AWS_* datasources share:
+  BATCH_START_TIME, BATCH_END_TIME, QUERY_START_TIME, QUERY_END_TIME
+  ARN, API_KEY, SERVICE, ACCOUNT_ID, ACCOUNT_ALIAS
+  RESOURCE_TYPE, RESOURCE_ID, RESOURCE_REGION
+  RESOURCE_CONFIG  (JSON — use RESOURCE_CONFIG:fieldName::Type to access subfields)
+  RESOURCE_TAGS    (JSON — use RESOURCE_TAGS:TagName::String)
+
+Standard compliance return columns:
+  ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'reason' as COMPLIANCE_FAILURE_REASON
+
+━━ AWS CONFIG DATASOURCES ━━
+Identity & Access:
+  LW_CFG_AWS_IAM_USERS                        — IAM users list
+  LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT  — credential report; top-level fields: USERNAME, MFA_ACTIVE, PASSWORD_ENABLED, PASSWORD_LAST_USED, ACCESS_KEY_1_ACTIVE, ACCESS_KEY_1_LAST_USED_DATE, ACCESS_KEY_2_ACTIVE
+  LW_CFG_AWS_IAM_USERS_LIST_ATTACHED_POLICIES — managed policies attached to each user
+  LW_CFG_AWS_IAM_USERS_LIST_POLICIES          — inline policies per user
+  LW_CFG_AWS_IAM_USERS_LIST_ACCESS_KEYS       — access key metadata per user
+  LW_CFG_AWS_IAM_ROLES                        — IAM roles
+  LW_CFG_AWS_IAM_ROLES_LIST_ATTACHED_POLICIES — managed policies attached to roles
+  LW_CFG_AWS_IAM_POLICIES                     — IAM managed policies
+  LW_CFG_AWS_IAM_GROUPS                       — IAM groups
+  LW_CFG_AWS_IAM_MFA_DEVICES                  — virtual MFA devices
+  LW_CFG_AWS_IAM_ACCOUNT_PASSWORD_POLICY      — account password policy; RESOURCE_CONFIG:MinimumPasswordLength::Number, RequireUppercaseCharacters::Boolean, MaxPasswordAge::Number, etc.
+  LW_CFG_AWS_IAM_ACCOUNT_SUMMARY              — account-level IAM summary counts
+  LW_CFG_AWS_IAM_GET_ACCESS_KEY_LAST_USED     — per-key last-used date
+
+Compute — EC2:
+  LW_CFG_AWS_EC2_INSTANCES                    — EC2 instances; RESOURCE_CONFIG:State.Name::String = 'running'
+  LW_CFG_AWS_EC2_SECURITY_GROUPS              — security groups; RESOURCE_CONFIG:IpPermissions and IpPermissionsEgress contain arrays of rules — DO NOT use [*] to query them; use array_to_rows()
+  LW_CFG_AWS_EC2_VPCS                         — VPCs
+  LW_CFG_AWS_EC2_SUBNETS                      — subnets
+  LW_CFG_AWS_EC2_VOLUMES                      — EBS volumes; RESOURCE_CONFIG:Encrypted::Boolean, RESOURCE_CONFIG:State::String, RESOURCE_CONFIG:VolumeType::String
+  LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT    — EBS default encryption per region; RESOURCE_CONFIG:ebsEncryptionByDefault::Boolean
+  LW_CFG_AWS_EC2_NETWORK_ACLS                 — Network ACLs
+  LW_CFG_AWS_EC2_VPC_FLOW_LOGS               — VPC flow log configs
+  LW_CFG_AWS_EC2_INTERNET_GATEWAYS            — internet gateways
+  LW_CFG_AWS_EC2_SNAPSHOTS                    — EBS snapshots; RESOURCE_CONFIG:Encrypted::Boolean
+  LW_CFG_AWS_EC2_IMAGES                       — AMIs
+  LW_CFG_AWS_EC2_KEY_PAIRS                    — EC2 key pairs
+
+Containers & Serverless:
+  LW_CFG_AWS_EKS_CLUSTERS                     — EKS clusters
+  LW_CFG_AWS_EKS_NODEGROUPS                   — EKS node groups
+  LW_CFG_AWS_ECS_CLUSTERS                     — ECS clusters
+  LW_CFG_AWS_ECS_TASK_DEFINITIONS             — ECS task definitions
+  LW_CFG_AWS_ECR_REPOSITORIES                 — ECR repositories
+  LW_CFG_AWS_ECR_REPOSITORIES_GET_POLICY      — ECR repository policies
+  LW_CFG_AWS_LAMBDA                           — Lambda functions (lambda list-functions)
+  LW_CFG_AWS_LAMBDA_GET_POLICY                — Lambda resource-based policies
+
+Storage:
+  LW_CFG_AWS_S3                               — S3 buckets
+  LW_CFG_AWS_S3_GET_BUCKET_ACL               — S3 bucket ACLs
+  LW_CFG_AWS_S3_GET_BUCKET_ENCRYPTION        — S3 encryption; RESOURCE_CONFIG:ServerSideEncryptionConfiguration::String
+  LW_CFG_AWS_S3_GET_BUCKET_LOGGING           — S3 server access logging config
   LW_CFG_AWS_S3_GET_BUCKET_POLICY            — S3 bucket policies
-  LW_CFG_AWS_EC2_INSTANCES                   — EC2 instances (tags field: RESOURCE_TAGS)
-  LW_CFG_AWS_EC2_SECURITY_GROUPS             — Security groups
-  LW_CFG_AWS_EC2_VPCS                        — VPCs
-  LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT   — EBS encryption default
-  LW_CFG_AWS_IAM_USERS                       — IAM users
-  LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT — IAM credential report (PASSWORD_ENABLED, MFA_ACTIVE, ACCESS_KEY_1_ACTIVE etc.)
-  LW_CFG_AWS_IAM_USERS_LIST_POLICIES         — IAM policies attached to users
-  LW_CFG_AWS_KMS_KEYS                        — KMS keys
-  LW_CFG_AWS_CLOUDTRAIL                      — CloudTrail trails
-  LW_CFG_AWS_SECRETSMANAGER_SECRETS          — AWS Secrets Manager secrets (fields: ARN, NAME, DESCRIPTION, ROTATION_ENABLED, LAST_ROTATED_DATE, RESOURCE_TAGS)
-  LW_CFG_AWS_SSM_PARAMETERS                  — SSM Parameter Store (TYPE='SecureString' means secret; fields: NAME, TYPE, DESCRIPTION, ARN)
+  LW_CFG_AWS_S3_GET_BUCKET_VERSIONING        — S3 versioning; RESOURCE_CONFIG:Status::String ('Enabled' or 'Suspended')
+  LW_CFG_AWS_S3_GET_PUBLIC_ACCESS_BLOCK      — per-bucket public access block settings
+  LW_CFG_AWS_S3CONTROL_GET_PUBLIC_ACCESS_BLOCK — account-level S3 public access block
+  LW_CFG_AWS_RDS_DB_INSTANCES                 — RDS instances; RESOURCE_CONFIG:StorageEncrypted::Boolean, MultiAZ::Boolean, PubliclyAccessible::Boolean
+  LW_CFG_AWS_RDS_CLUSTERS                     — RDS Aurora clusters
+  LW_CFG_AWS_RDS_DB_SNAPSHOTS                 — RDS snapshots
+  LW_CFG_AWS_DYNAMODB_TABLES                  — DynamoDB tables
 
-Host entities (agent-based, no ARN/SERVICE/RESOURCE_TYPE):
-  LW_HE_MACHINES    — hosts (fields: MID, HOSTNAME, TAGS, OS, ARCH, KERNEL_RELEASE)
-                      Internet exposure: TAGS:lw_InternetExposure::String = 'Yes'
-                      Cloud account:     TAGS:Account::String
-                      Region:            TAGS:Region::String
-  LW_HE_PROCESSES   — running processes (fields: MID, EXE_PATH, CMDLINE, USERNAME — NO HOSTNAME)
-  LW_HE_CONTAINERS  — containers (fields: MID, CONTAINER_NAME, CONTAINER_ID — NO HOSTNAME)
-  LW_HE_IMAGES      — container images (fields: MID, IMAGE_ID, REPO, TAG)
-  CloudTrailRawEvents — raw CloudTrail events (EVENT_NAME, EVENT_SOURCE, USER_IDENTITY etc.)
+Encryption & Secrets:
+  LW_CFG_AWS_KMS_KEYS                         — KMS key list
+  LW_CFG_AWS_KMS_KEYS_DESCRIBE_KEY            — KMS key details; RESOURCE_CONFIG:KeyState::String, KeyManager::String ('AWS' or 'CUSTOMER'), KeyUsage::String
+  LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS     — KMS rotation; RESOURCE_CONFIG:keyRotationEnabled::Boolean
+  LW_CFG_AWS_KMS_ALIASES                      — KMS aliases
+  LW_CFG_AWS_SECRETSMANAGER_SECRETS           — Secrets Manager; top-level: NAME, DESCRIPTION, ROTATION_ENABLED, LAST_ROTATED_DATE
+  LW_CFG_AWS_SSM_PARAMETERS                   — SSM Parameter Store; top-level: NAME, TYPE, DESCRIPTION (TYPE='SecureString' = encrypted)
 
-━━ SYNTAX RULES ━━
-- NEVER use CONTAINS() — use LIKE '%value%' instead
-- RLIKE keyword form only: FIELD RLIKE 'pattern' (NOT RLIKE(field, pattern))
-- JSON path: FIELD:json.key — cast with ::String or ::Number
-- Expand arrays: array_to_rows(alias.FIELD:array) as (colname)
-- No multi-source joins unless using WITH ... ON '(default)' syntax
-- String comparison is case-sensitive
+Security & Audit:
+  LW_CFG_AWS_CLOUDTRAIL                       — CloudTrail trails; RESOURCE_CONFIG:IsMultiRegionTrail::Boolean, LogFileValidationEnabled::Boolean
+  LW_CFG_AWS_CLOUDTRAIL_GET_EVENT_SELECTORS   — CloudTrail event selector config
+  LW_CFG_AWS_CLOUDWATCH                       — CloudWatch alarms
+  LW_CFG_AWS_GUARDDUTY_FINDINGS               — GuardDuty findings
+  LW_CFG_AWS_GUARDDUTY_DETECTORS              — GuardDuty detectors
+  LW_CFG_AWS_INSPECTOR2_COVERAGE              — Inspector2 resource coverage
+  LW_CFG_AWS_CONFIG_CONFIGURATION_RECORDERS   — AWS Config recorder config
+  LW_CFG_AWS_CONFIG_CONFIGURATION_RECORDERS_STATUS — recorder status
 
-━━ RETURN COLUMN CONVENTIONS ━━
-Config datasources: ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'reason text' as COMPLIANCE_FAILURE_REASON
-Host datasources:   MID, HOSTNAME (or TAGS:Hostname::String for LW_HE_MACHINES), plus relevant fields — omit ARN/SERVICE/RESOURCE_TYPE
-- queryId format: Custom_<Cloud>_<Service>_<PascalCaseDescription>
+Networking & Org:
+  LW_CFG_AWS_ELBV2                            — ALB/NLB load balancers
+  LW_CFG_AWS_ELB                              — Classic load balancers
+  LW_CFG_AWS_CLOUDFRONT                       — CloudFront distributions
+  LW_CFG_AWS_ROUTE53_HOSTED_ZONES            — Route 53 hosted zones
+  LW_CFG_AWS_ORGANIZATIONS_ACCOUNTS          — AWS Organizations accounts
 
-━━ EXAMPLE QUERIES ━━
+━━ WORKLOAD / AGENT DATASOURCES ━━
+No ARN/SERVICE/RESOURCE_TYPE — use MID to join to LW_HE_MACHINES for hostname/tags.
+Standard return: MID, HOSTNAME (via join or TAGS:Hostname::String), plus relevant fields.
 
-List internet-exposed hosts:
-{"queryId":"Custom_AWS_Hosts_InternetExposed","queryText":"{ source { LW_HE_MACHINES } filter { TAGS:lw_InternetExposure::String = 'Yes' } return distinct { MID, TAGS:Hostname::String as HOSTNAME, TAGS:Account::String as ACCOUNT, TAGS:Region::String as REGION } }"}
+  LW_HE_MACHINES      — host inventory: MID, HOSTNAME, TAGS(JSON), OS, OS_VERSION, KERNEL_RELEASE
+                        TAGS:lw_InternetExposure::String = 'Yes'  → internet-exposed host
+                        TAGS:Account::String, TAGS:Region::String, TAGS:Hostname::String
 
-List all AWS Secrets Manager secrets:
-{"queryId":"Custom_AWS_SecretsManager_AllSecrets","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, ROTATION_ENABLED } }"}
+  LW_HE_PROCESSES     — running process snapshot: MID, PID, PPID, USERNAME, EXE_PATH, CMDLINE, CWD
+  LW_HE_ALL_PROCESSES — all processes incl. short-lived: MID, PID, PPID, EXE_PATH, CMDLINE, IS_IN_CONTAINER, CONTAINER_ID
+  LW_HE_CONTAINERS    — running containers: MID, CONTAINER_ID, CONTAINER_NAME, CONTAINER_TYPE, IMAGE_ID, REPO, TAG, PRIVILEGED, NETWORK_MODE, LISTEN_PORT_MAP
+  LW_HE_IMAGES        — container images: MID, IMAGE_ID, REPO, TAG, SIZE, ACTIVE_COUNT
+  LW_HE_PACKAGES      — installed packages: MID, PACKAGE_NAME, PACKAGE_VERSION, NAMESPACE, IS_IN_CONTAINER, CONTAINER_KEY
+  LW_HE_FILES         — filesystem: MID, PATH, FILE_NAME, FILE_PERMISSIONS, OWNER_USERNAME, FILEDATA_HASH, SIZE
+  LW_HE_USERS         — OS user accounts: MID, USERNAME, PRIMARY_GROUP_NAME, OTHER_GROUP_NAMES, HOME_DIR
+  LW_HE_SECRETS_ALL   — secrets found on disk: MID, HOSTNAME, FILE_PATH, SECRET_TYPE, SECRET_METADATA
 
-List SSM SecureString parameters (potential secrets):
+  LW_HA_SYSCALLS_EXEC — process execution events: MID, EXE_PATH, CMDLINE, PID, PPID, UID, GID, COUNT, OS
+  LW_HA_SYSCALLS_FILE — file access events: MID, TARGET_PATH, TARGET_OP, WATCH_PATH, PID, EXE_PATH, UID, GID, COUNT
+  LW_HA_SSH_LOGINS    — SSH login events: MID, USERNAME, IP_ADDR, HOSTNAME, LOGIN_TIME, SSH_KEY_TYPE
+  LW_HA_USER_LOGINS   — OS login/logoff: MID, USERNAME, IP_ADDR, HOSTNAME, LOGIN_TIME, LOGOFF_TIME, EVENT_TYPE, TTY, UID, GID
+  LW_HA_FILE_CHANGES  — file change audit: MID, PATH, ACTIVITY, FILEDATA_HASH, LAST_MODIFIED_TIME, SIZE
+  LW_HA_DNS_REQUESTS  — DNS queries: MID, HOSTNAME, HOST_IP_ADDR, SRV_IP_ADDR, TTL
+  LW_HA_CONNECTION_SUMMARY — network connections: MID, SRC_ENTITY_TYPE, SRC_ENTITY_ID, DST_ENTITY_TYPE, DST_ENTITY_ID, SRC_OUT_BYTES, DST_IN_BYTES, NUM_CONNS
+
+  CloudTrailRawEvents — raw CloudTrail audit events: EVENT_NAME, EVENT_SOURCE, EVENT_TIME, USER_IDENTITY(JSON), SOURCE_IP_ADDRESS, REQUEST_PARAMETERS(JSON), RESPONSE_ELEMENTS(JSON), ERROR_CODE
+
+━━ CLOUD ENTITLEMENT & ATTACK PATH ━━
+  LW_APA_ATTACK_PATHS   — attack paths: PATH_ID, PROVIDER_TYPE, DOMAIN_ID, METRICS(JSON), PATH(JSON), TARGETS(JSON)
+  LW_APA_EXPOSURE_PATHS — exposure paths: PATH_ID, PATH_TYPE, TARGET_ID, TARGET_TYPE, TARGET_TAGS
+  LW_CE_ENTITLEMENTS    — effective IAM permissions: PRINCIPAL_ID, SERVICE, RESOURCE_TYPE, RESOURCE_ID, POLICY_ID, ACTION, LAST_USED_TIME
+  LW_CE_IDENTITIES      — cloud identities: PRINCIPAL_ID, NAME, PROVIDER_TYPE, LAST_USED_TIME, CREATED_TIME, METRICS(JSON)
+
+━━ EXAMPLES ━━
+
+EC2 instances with unencrypted EBS volumes — use LW_CFG_AWS_EC2_VOLUMES (not EC2_INSTANCES with array indexing):
+{"queryId":"Custom_AWS_EC2_UnencryptedVolumes","queryText":"{ source { LW_CFG_AWS_EC2_VOLUMES } filter { RESOURCE_CONFIG:Encrypted::Boolean = false AND RESOURCE_CONFIG:State::String = 'in-use' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_TYPE, SERVICE, 'EBS volume is not encrypted' as COMPLIANCE_FAILURE_REASON } }"}
+
+Regions without EBS encryption-by-default:
+{"queryId":"Custom_AWS_EC2_NoEBSDefaultEncryption","queryText":"{ source { LW_CFG_AWS_EC2_EBS_ENCRYPTION_BY_DEFAULT } filter { RESOURCE_CONFIG:ebsEncryptionByDefault::Boolean = false } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, RESOURCE_REGION, 'EBS encryption by default is disabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+IAM users with password login but no MFA:
+{"queryId":"Custom_AWS_IAM_UsersNoMFA","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT } filter { MFA_ACTIVE = false AND PASSWORD_ENABLED = true } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, USERNAME, PASSWORD_LAST_USED, 'Password login without MFA' as COMPLIANCE_FAILURE_REASON } }"}
+
+KMS customer keys without rotation:
+{"queryId":"Custom_AWS_KMS_NoRotation","queryText":"{ source { LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS } filter { RESOURCE_CONFIG:keyRotationEnabled::Boolean = false } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, 'KMS key rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+Internet-exposed hosts:
+{"queryId":"Custom_AWS_Hosts_InternetExposed","queryText":"{ source { LW_HE_MACHINES } filter { TAGS:lw_InternetExposure::String = 'Yes' } return distinct { MID, TAGS:Hostname::String as HOSTNAME, TAGS:Account::String as ACCOUNT, TAGS:Region::String as REGION, OS } }"}
+
+SSH logins from external IPs on internet-exposed hosts (multi-source join):
+{"queryId":"Custom_AWS_Hosts_ExternalSSHLogins","queryText":"{ source { LW_HA_SSH_LOGINS s WITH LW_HE_MACHINES m ON m.MID = s.MID } filter { m.TAGS:lw_InternetExposure::String = 'Yes' AND s.IP_ADDR NOT LIKE '10.%' AND s.IP_ADDR NOT LIKE '192.168.%' } return distinct { s.MID, m.TAGS:Hostname::String as HOSTNAME, s.USERNAME, s.IP_ADDR, s.LOGIN_TIME, m.TAGS:Account::String as ACCOUNT } }"}
+
+Secrets Manager secrets without rotation:
+{"queryId":"Custom_AWS_SecretsManager_NoRotation","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } filter { ROTATION_ENABLED = false } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, LAST_ROTATED_DATE, 'Secret rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+SSM SecureString parameters (potential unmanaged secrets):
 {"queryId":"Custom_AWS_SSM_SecureParameters","queryText":"{ source { LW_CFG_AWS_SSM_PARAMETERS } filter { TYPE = 'SecureString' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, DESCRIPTION } }"}
 
-List IAM users without MFA:
-{"queryId":"Custom_AWS_IAM_UsersNoMFA","queryText":"{ source { LW_CFG_AWS_IAM_USERS_GET_CREDENTIAL_REPORT } filter { MFA_ACTIVE = false AND PASSWORD_ENABLED = true } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, USERNAME, ARN as RESOURCE_KEY, PASSWORD_LAST_USED, 'MFA not enabled' as COMPLIANCE_FAILURE_REASON } }"}
-
 ━━ OUTPUT FORMAT ━━
-Respond with ONLY a JSON object — no markdown, no explanation:
-{"queryId": "Custom_...", "queryText": "{ source { ... } filter { ... } return distinct { ... } }"}"""
+Respond with ONLY a valid JSON object — no markdown, no code fences, no explanation:
+{"queryId": "Custom_<Cloud>_<Service>_<PascalCaseDescription>", "queryText": "{ source { ... } filter { ... } return distinct { ... } }"}"""
 
         # Always embed system as first message so it works for both
         # Anthropic-native gateways and OpenAI-compatible ones (Ollama, etc.)
@@ -889,22 +1043,57 @@ Respond with ONLY a JSON object — no markdown, no explanation:
             self.send_json(400, json.dumps({'error': 'queryText is required'}).encode())
             return
 
+        now   = datetime.now(timezone.utc)
+        start = payload.get('startTime') or (now - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        end   = payload.get('endTime')   or now.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        # Prefer lacework CLI — it resolves provider/evaluator automatically
+        if shutil.which('lacework'):
+            try:
+                result = subprocess.run(
+                    ['lacework', 'query', 'execute',
+                     '--query-text', query_text,
+                     '--start', start, '--end', end, '--json'],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    raw = json.loads(result.stdout)
+                    rows = raw.get('data', raw) if isinstance(raw, dict) else raw
+                    if not isinstance(rows, list):
+                        rows = []
+                    self.send_json(200, json.dumps({
+                        'rows': rows, 'count': len(rows), 'total': len(rows),
+                        'startTime': start, 'endTime': end,
+                    }).encode())
+                    return
+                # CLI failed — fall through to REST API; surface the error if REST also fails
+                cli_err = (result.stderr or result.stdout or '').strip()
+            except subprocess.TimeoutExpired:
+                self.send_json(504, json.dumps({'error': 'Query timed out'}).encode())
+                return
+            except Exception:
+                cli_err = ''
+        else:
+            cli_err = ''
+
+        # REST API fallback (works when evaluatorId can be resolved)
         try:
             token, base_url = self._lw_token()
         except Exception as e:
             self.send_json(503, json.dumps({'error': str(e)}).encode())
             return
 
-        now   = datetime.now(timezone.utc)
-        start = payload.get('startTime') or (now - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        end   = payload.get('endTime')   or now.strftime('%Y-%m-%dT%H:%M:%SZ')
+        arguments = [
+            {'name': 'StartTimeRange', 'value': start},
+            {'name': 'EndTimeRange',   'value': end},
+        ]
+        evaluator_id = self._lw_evaluator_id(token, base_url, query_text)
+        if evaluator_id:
+            arguments.append({'name': 'evaluatorId', 'value': evaluator_id})
 
         body = json.dumps({
             'query': {'queryText': query_text},
-            'arguments': [
-                {'name': 'StartTimeRange', 'value': start},
-                {'name': 'EndTimeRange',   'value': end},
-            ],
+            'arguments': arguments,
         }).encode()
         req = urllib.request.Request(
             f'{base_url}/api/v2/Queries/execute',
@@ -926,6 +1115,8 @@ Respond with ONLY a JSON object — no markdown, no explanation:
                 msg = json.loads(err_body).get('message', err_body.decode()[:500])
             except Exception:
                 msg = err_body.decode()[:500]
+            if cli_err:
+                msg = f'{msg} | CLI: {cli_err}'
             self.send_json(e.code, json.dumps({'error': msg}).encode())
 
     def log_message(self, fmt, *args):
@@ -952,7 +1143,7 @@ def _lw_creds_present():
 
 LW_READY = _lw_creds_present()
 
-print(f'Bifrost chatbox  →  http://localhost:{PORT}')
+print(f'Web AI Agent  →  http://localhost:{PORT}')
 print(f'Virtual key      →  {"loaded (" + VIRTUAL_KEY[:12] + "…)" if VIRTUAL_KEY else "MISSING — edit .env"}')
 print(f'Proxy route      →  /proxy/v1/* → {UPSTREAM.rstrip("/")}/v1/*')
 print(f'Search proxy     →  /search?q=... → {SEARXNG_URL}')

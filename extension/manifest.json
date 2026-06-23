@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Web AI Agent",
   "version": "2.0",
-  "description": "Secure AI chat side panel for the Bifrost AI Gateway",
+  "description": "Secure AI chat side panel — Web AI Agent",
   "permissions": ["storage", "sidePanel", "tabs", "activeTab", "scripting"],
   "host_permissions": ["https://*/*", "http://localhost/*"],
   "content_security_policy": {

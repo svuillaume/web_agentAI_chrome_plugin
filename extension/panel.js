@@ -137,10 +137,10 @@ async function autoFillFromConfig() {
       chrome.storage.session.set({ [storeKey]: cfg[cfgKey] });
     }
   };
-  fill(urlInput,    'bifrost_url', 'bf_url');
+  fill(urlInput,    'gateway_url', 'bf_url');
   fill(keyInput,    'api_key',     'bf_key');
   fill(searchInput, 'searxng_url', 'bf_search');
-  if (cfg.bifrost_url || cfg.api_key) setStatus('config loaded', 'ok');
+  if (cfg.gateway_url || cfg.api_key) setStatus('config loaded', 'ok');
 
   // Grey out FortiCNAPP security tools if ~/.lacework.toml credentials are missing
   const lwReady = cfg.lw_ready === true;
@@ -372,7 +372,7 @@ async function send(silent = false) {
   const key       = keyInput.value.trim();
   const hasSearch = !!searchInput.value.trim();
 
-  if (!baseUrl) { appendTurn('system', 'No endpoint URL — enter the Bifrost base URL above.'); return; }
+  if (!baseUrl) { appendTurn('system', 'No endpoint URL — enter the gateway base URL above.'); return; }
   if (!key)     { appendTurn('system', 'No API key — enter your sk-bf-… key above.');          return; }
 
   if (!silent) {

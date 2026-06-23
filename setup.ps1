@@ -1,4 +1,4 @@
-# Bifrost Chat — Windows Setup Script (PowerShell)
+# Web AI Agent — Windows Setup Script (PowerShell)
 # Run with: .\setup.ps1
 # Requires PowerShell 5.1+ (built into Windows 10/11)
 
@@ -12,7 +12,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 Write-Host ""
-Write-Host "  ⚡ Bifrost Chat — Setup (Windows)" -ForegroundColor Cyan
+Write-Host "  🌐 Web AI Agent — Setup (Windows)" -ForegroundColor Cyan
 Write-Host "  ───────────────────────────────────" -ForegroundColor Cyan
 Write-Host ""
 
@@ -22,7 +22,7 @@ if (-not (Test-Path ".env")) {
     Copy-Item ".env.tpl" ".env"
     Write-Host ""
     Write-Host "  Edit .env and set your values:" -ForegroundColor Yellow
-    Write-Host "    ANTHROPIC_BASE_URL  = your Bifrost endpoint"
+    Write-Host "    ANTHROPIC_BASE_URL  = your gateway endpoint"
     Write-Host "    BIFROST_VIRTUAL_KEY = your sk-bf-... key"
     Write-Host ""
     notepad.exe ".env" | Out-Null
@@ -74,7 +74,7 @@ if ($DockerAvailable) {
 # ── Step 4: serve.py (Docker or Python) ──────────────────────────────────
 if ($DockerAvailable) {
     Write-Host ""
-    Write-Host "  How do you want to run Bifrost?"
+    Write-Host "  How do you want to run Web AI Agent?"
     Write-Host ""
     Write-Host "  [1] Docker  — All services in containers (recommended)"
     Write-Host "  [2] Python  — serve.py locally (requires Python 3)"
@@ -90,7 +90,7 @@ switch ($choice) {
         Info "Building and starting all containers..."
         docker compose up -d --build
 
-        Write-Host "  Waiting for Bifrost" -NoNewline
+        Write-Host "  Waiting for Web AI Agent" -NoNewline
         for ($i = 0; $i -lt 20; $i++) {
             try {
                 $r = Invoke-WebRequest "http://localhost:8765/config" -UseBasicParsing -TimeoutSec 2

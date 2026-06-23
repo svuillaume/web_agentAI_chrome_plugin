@@ -43,7 +43,7 @@ load_env
 
 # Ask for missing required values
 if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
-  prompt "Enter your AI Gateway base URL (e.g. https://bifrost.yourhost.com/anthropic):"
+  prompt "Enter your AI Gateway base URL (e.g. https://your-gateway.example.com/anthropic):"
   read -rp "  ANTHROPIC_BASE_URL: " val
   [ -n "$val" ] && write_env_key "ANTHROPIC_BASE_URL" "$val" && ANTHROPIC_BASE_URL="$val"
 else
@@ -153,13 +153,13 @@ else
   sleep 1
 fi
 
-# ── Step 5: start Bifrost serve.py ───────────────────────────────────────────
+# ── Step 5: start Web AI Agent serve.py ──────────────────────────────────────
 echo ""
 if [ "$DOCKER_AVAILABLE" = true ]; then
-  info "Building and starting Bifrost container..."
-  docker compose up -d --build bifrost
+  info "Building and starting Web AI Agent container..."
+  docker compose up -d --build webai
 
-  echo -n "  Waiting for Bifrost"
+  echo -n "  Waiting for Web AI Agent"
   for i in $(seq 1 20); do
     if curl -s "http://localhost:8765/config" >/dev/null 2>&1; then
       echo " ✓"

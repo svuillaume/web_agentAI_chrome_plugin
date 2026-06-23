@@ -4,16 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-Bifrost is a browser-native AI security assistant: a Chrome extension (side panel) backed by a local Python HTTP server (`serve.py`). The extension sends chat through an AI gateway (Bifrost, Portkey, LiteLLM, or Helicone) to Claude, and uses `serve.py` as a CORS proxy for FortiCNAPP security tools and SearXNG web search.
+Web AI Agent is a browser-native AI security assistant: a Chrome extension (side panel) backed by a local Python HTTP server (`serve.py`). The extension sends chat through an AI gateway (Bifrost, Portkey, LiteLLM, or Helicone) to Claude, and uses `serve.py` as a CORS proxy for FortiCNAPP security tools and SearXNG web search.
 
-> **Note:** The `bifrost/` subdirectory is an older snapshot of the project. All active code lives at the repo root. Do not edit files under `bifrost/`.
 
 ## Running the backend
 
 **Recommended — Docker (all services):**
 ```bash
 docker compose up -d          # first run; builds the image
-docker compose up --build -d bifrost   # after any change to serve.py or chatbox.html
+docker compose up --build -d webai     # after any change to serve.py or chatbox.html
 docker compose down
 ```
 
@@ -33,14 +32,17 @@ On Windows: `setup.ps1`
 ## Configuration
 
 Copy `.env.tpl` → `.env` and fill in:
-- `ANTHROPIC_BASE_URL` — AI gateway endpoint (e.g. `https://bifrost.yourhost.com/anthropic`)
+- `ANTHROPIC_BASE_URL` — AI gateway endpoint (e.g. `https://your-gateway.example.com/anthropic`)
 - `BIFROST_VIRTUAL_KEY` — gateway virtual key (`sk-bf-…`)
-- `ANTHROPIC_DEFAULT_MODEL` — model for chat (default: `claude-haiku-4-5-20251001`); note `/lql/generate` is hardcoded to `claude-haiku-4-5` and ignores this setting
+- `ANTHROPIC_DEFAULT_MODEL` — model for chat and `/lql/generate` (default: `claude-haiku-4-5`); both use this setting
 - `LQL_QUERIES_DIR` — path to `.yaml` LQL query files; in Docker this is mounted at `/lql_queries` (docker-compose hardcodes `~/claude_cnapp/lql/lql_queries` as the host path — edit docker-compose.yml to change it)
+- `SEARXNG_URL` — when using Docker, use `http://searxng:8080` (the container service name), not `localhost:8080`
 
 FortiCNAPP credentials: `~/.lacework.toml` (from `lacework configure`). Mounted read-only into the container.
 
-`serve.py` loads `.env` at startup, with real environment variables taking precedence and `.env` values overriding only when the key is absent. Restart required after any change.
+`serve.py` loads `.env` at startup; `.env` values **override** real environment variables. Restart required after any change.
+
+**`extension/config.json`** — offline fallback config for the extension when `serve.py` is not running. Create from `config.json.tpl` and fill in `gateway_url`, `api_key`, `searxng_url`. The extension tries `GET /config` from serve.py first; if that fails, it falls back to this bundled file. It is not committed (untracked in git).
 
 ## Architecture
 
@@ -87,6 +89,12 @@ Chrome Extension (extension/)
 **Web search fallback** — The extension tries `localhost:8080` (Docker SearXNG) directly first with a 4-second timeout, then falls back to `localhost:8765/search` (serve.py proxy). Search is only offered to the AI model when `SEARXNG_URL` is non-empty.
 
 **Compliance PDF text extraction** — `/compliance/latest-text` uses `pdftotext` (poppler-utils) if it is on `PATH`; otherwise it returns base64 for client-side fallback. The PDF is held in process memory only (`_last_compliance_pdf` dict); it is lost on server restart.
+
+**`/lql/generate` CVE routing** — If the objective mentions CVE vulnerabilities, the LQL generation system prompt intercepts it and returns `{"queryId": "USE_CVE_TAB", ...}` instead of an LQL query; `panel.js` detects this and redirects the user to the CVE tab. CVE data is not available in LQL.
+
+**`/lql/generate` gateway compatibility** — The endpoint calls the AI gateway directly (not via `/proxy/`). It handles both Anthropic-native (`content[].text`) and OpenAI-compatible (`choices[].message.content`) response shapes, so it works with Ollama and other OpenAI-compatible gateways.
+
+**LQL and CVE time window** — Both `/lql/run` and `/lql/cve` default to the last 7 days when no `startTime`/`endTime` are provided.
 
 **CodeSec suppression** — `.lacework/codesec.yaml` configures scan exceptions applied to all CodeSec results.
 
