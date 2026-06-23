@@ -441,12 +441,14 @@ async function send(silent = false) {
 })();
 
 // MV3 side panels block target="_blank"; open links via chrome.tabs instead
-el('log').addEventListener('click', e => {
+function handleExtLink(e) {
   const a = e.target.closest('a.ext-link');
   if (!a) return;
   e.preventDefault();
   chrome.tabs.create({ url: a.dataset.href });
-});
+}
+el('log').addEventListener('click', handleExtLink);
+el('codesec-body').addEventListener('click', handleExtLink);
 
 el('prompt').addEventListener('input',   resizePrompt);
 el('prompt').addEventListener('keydown', e => {
