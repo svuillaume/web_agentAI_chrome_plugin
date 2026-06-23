@@ -182,6 +182,8 @@ body {
 }
 .chip:hover           { color: var(--text);    background: var(--surface3); border-color: var(--border); }
 .chip:disabled        { opacity: .3; cursor: not-allowed; }
+.chip.lw-disabled     { opacity: .35; cursor: not-allowed; filter: grayscale(1); pointer-events: none; }
+.chip.lw-disabled:hover { background: var(--surface2); color: var(--text); border-color: var(--border); }
 .chip.active          { color: var(--ok);      background: var(--ok-bg);    border-color: rgba(52,211,153,.25); }
 .chip.busy            { color: var(--dim);     background: transparent;     cursor: wait; }
 .chip.accent:hover    { color: var(--accent);  background: var(--accent-bg);border-color: rgba(238,49,36,.25); }

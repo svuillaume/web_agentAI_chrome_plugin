@@ -140,6 +140,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             'bifrost_url': env.get('ANTHROPIC_BASE_URL', ''),
             'api_key':     VIRTUAL_KEY,
             'searxng_url': SEARXNG_URL,
+            'lw_ready':    LW_READY,
         }).encode()
         self.send_json(200, body)
 
@@ -867,6 +868,24 @@ Respond with ONLY a JSON object, no markdown, no explanation:
 
 
 LW_AVAILABLE = shutil.which('lacework') is not None
+
+def _lw_creds_present():
+    toml_path = os.path.expanduser('~/.lacework.toml')
+    if not os.path.exists(toml_path):
+        return False
+    account = api_key = api_secret = ''
+    with open(toml_path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('account'):
+                account    = line.split('=',1)[1].strip().strip('"')
+            elif line.startswith('api_key'):
+                api_key    = line.split('=',1)[1].strip().strip('"')
+            elif line.startswith('api_secret'):
+                api_secret = line.split('=',1)[1].strip().strip('"')
+    return bool(account and api_key and api_secret)
+
+LW_READY = _lw_creds_present()
 
 print(f'Bifrost chatbox  →  http://localhost:{PORT}')
 print(f'Virtual key      →  {"loaded (" + VIRTUAL_KEY[:12] + "…)" if VIRTUAL_KEY else "MISSING — edit .env"}')

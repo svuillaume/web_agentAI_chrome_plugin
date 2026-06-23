@@ -141,6 +141,20 @@ async function autoFillFromConfig() {
   fill(keyInput,    'api_key',     'bf_key');
   fill(searchInput, 'searxng_url', 'bf_search');
   if (cfg.bifrost_url || cfg.api_key) setStatus('config loaded', 'ok');
+
+  // Grey out FortiCNAPP security tools if ~/.lacework.toml credentials are missing
+  const lwReady = cfg.lw_ready === true;
+  const LW_CHIPS = ['codesec', 'compliance', 'lql', 'cve-btn'];
+  LW_CHIPS.forEach(id => {
+    const btn = el(id);
+    if (!btn) return;
+    if (!lwReady) {
+      btn.classList.add('lw-disabled');
+      btn.title = btn.title.replace('🔑 Requires FortiCNAPP API key', '⚠ FortiCNAPP credentials not found (add ~/.lacework.toml)');
+    } else {
+      btn.classList.remove('lw-disabled');
+    }
+  });
 }
 
 // ── Welcome message ───────────────────────────────────────────────────────────
@@ -220,6 +234,8 @@ function setRendered(node, html) {
 }
 
 // ── Chat log ──────────────────────────────────────────────────────────────
+const scrollLog = () => { const l = el('log'); l.scrollTop = l.scrollHeight; };
+
 function appendTurn(role, text = '') {
   const turn  = Object.assign(document.createElement('div'), { className: 'turn' });
   const label = Object.assign(document.createElement('div'), {
@@ -235,8 +251,6 @@ function appendTurn(role, text = '') {
   scrollLog();
   return body;
 }
-
-const scrollLog    = () => { const l = el('log'); l.scrollTop = l.scrollHeight; };
 const resizePrompt = () => {
   const p = el('prompt');
   p.style.height = 'auto';
