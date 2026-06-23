@@ -798,7 +798,7 @@ async function extractPageCode() {
   if (!tab?.id) throw new Error('No active tab');
   const url = tab.url || '';
   if (/^(chrome|chrome-extension|about|edge):\/\//i.test(url))
-    throw new Error(`Cannot scan a browser page (${url.split('://')[0]}://). Navigate to a real webpage first.`);
+    throw new Error(`Cannot scan a browser page (${url.split('://')[0]}://). Navigate to a Github web page first.`);
 
   const ghRepo = githubRepoFromUrl(tab.url || '');
   if (ghRepo) {
