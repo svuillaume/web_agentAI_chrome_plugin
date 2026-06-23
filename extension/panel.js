@@ -310,13 +310,13 @@ function appendTurn(role, text = '') {
     const makeCopyBtn = (targetBody) => {
       const btn = Object.assign(document.createElement('button'), {
         className: 'rc-copy-btn',
-        textContent: '⎘',
+        textContent: '⎘ Copy',
         title: 'Copy response',
       });
       btn.addEventListener('click', () => {
         navigator.clipboard.writeText(targetBody.innerText || targetBody.textContent || '');
-        btn.textContent = '✓';
-        setTimeout(() => { btn.textContent = '⎘'; }, 1500);
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = '⎘ Copy'; }, 1500);
       });
       return btn;
     };
@@ -742,12 +742,16 @@ function appendResultCard(icon, title, contentEl) {
     const hdr = document.createElement('div');
     hdr.className = 'result-card-header';
     hdr.innerHTML = `<span class="result-card-icon">${icon}</span><span class="result-card-title">${title}</span>`;
-    const actions = document.createElement('div');
-    actions.className = 'rc-actions';
-    actions.appendChild(buildCopyBtn(body));
     const csvBtn = buildCsvBtn(body.querySelector('table'));
-    if (csvBtn) actions.appendChild(csvBtn);
-    hdr.appendChild(actions);
+    if (csvBtn) {
+      const actions = document.createElement('div');
+      actions.className = 'rc-actions';
+      actions.appendChild(csvBtn);
+      hdr.appendChild(actions);
+    }
+    // Copy button sits bottom-right inside the body
+    body.style.position = 'relative';
+    body.appendChild(buildCopyBtn(body));
     card.append(hdr, body);
     return card;
   };
@@ -1063,8 +1067,8 @@ async function runCodeSec(mode) {
       setStatus('sbom ready', 'ok');
     }
   } catch (e) {
-    console.error('CodeSec error:', e);
-    appendTurn('system', `CodeSec error: ${e.message}`);
+    const msg = e?.message || String(e);
+    appendTurn('system', `CodeSec error: ${msg}`);
     setStatus('error', 'err');
   } finally {
     btn.classList.remove('busy');

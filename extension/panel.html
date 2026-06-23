@@ -802,14 +802,12 @@ a.ext-link:hover { color: var(--accent-d); }
   background: var(--surface2);
   color: var(--muted);
   cursor: pointer;
-  opacity: 0;
-  transition: color .1s, background .1s, opacity .15s;
+  transition: color .1s, background .1s;
   line-height: 1.4;
 }
-.turn-ai .content:hover .rc-copy-btn { opacity: 1; }
-.rc-copy-btn:hover { color: var(--text); background: var(--surface3); opacity: 1; }
+.rc-copy-btn:hover { color: var(--text); background: var(--surface3); }
 .cs-result-body, .cve-result-body, .lql-result-body {
-  padding: 8px 12px;
+  padding: 8px 12px 32px;
   max-height: 320px;
   overflow-y: auto;
 }
