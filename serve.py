@@ -460,7 +460,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             out_json = os.path.join(tmpdir, 'sbom.json')
             cmd = ['lacework', 'sca', 'scan', tmpdir,
                    '--deployment=offprem', '--noninteractive',
-                   '--save-results=false', '-f', 'cyclonedx-json', '-o', out_json]
+                   '--save-results=false', '-f', 'cdx-json', '-o', out_json]
             if LW_PROFILE:
                 cmd += ['--profile', LW_PROFILE]
             result   = subprocess.run(cmd, capture_output=True, text=True, timeout=120)

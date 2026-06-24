@@ -893,23 +893,26 @@ const SKIP_DIRS = new Set([
 ]);
 
 function githubRepoFromUrl(url) {
-  // Matches: github.com/owner/repo  (any path beneath)
-  const m = url.match(/github\.com\/([^/]+)\/([^/?#]+)/);
+  // Matches: github.com/owner/repo[/tree/branch/...]
+  const m = url.match(/github\.com\/([^/]+)\/([^/?#]+)(?:\/tree\/([^/?#]+))?/);
   if (!m) return null;
-  return { owner: m[1], repo: m[2].replace(/\.git$/, '') };
+  return { owner: m[1], repo: m[2].replace(/\.git$/, ''), branch: m[3] || null };
 }
 
-async function fetchGithubRepoFiles(owner, repo) {
+async function fetchGithubRepoFiles(owner, repo, branchHint) {
   setStatus('fetching repo tree…', 'busy');
 
   const ghHeaders = { Accept: 'application/vnd.github+json' };
 
-  // Get default branch
-  const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`,
-    { headers: ghHeaders });
-  if (!repoRes.ok) throw new Error(`GitHub API ${repoRes.status}: ${owner}/${repo}`);
-  const repoData = await repoRes.json();
-  const branch   = repoData.default_branch || 'main';
+  // Use branch from URL if present; only hit the API when we need the default branch
+  let branch = branchHint;
+  if (!branch) {
+    const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`,
+      { headers: ghHeaders });
+    if (!repoRes.ok) throw new Error(`GitHub API ${repoRes.status}: ${owner}/${repo}`);
+    const repoData = await repoRes.json();
+    branch = repoData.default_branch || 'main';
+  }
 
   // Fetch full recursive file tree
   const treeRes = await fetch(
@@ -1068,7 +1071,7 @@ async function extractPageCode() {
 
   const ghRepo = githubRepoFromUrl(tab.url || '');
   if (ghRepo) {
-    const { files, owner, repo, branch } = await fetchGithubRepoFiles(ghRepo.owner, ghRepo.repo);
+    const { files, owner, repo, branch } = await fetchGithubRepoFiles(ghRepo.owner, ghRepo.repo, ghRepo.branch);
     // Build basename → [full path] map so findings can resolve the GitHub URL
     const pathMap = {};
     files.forEach(f => {
