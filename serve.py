@@ -18,13 +18,12 @@ POST /lql/generate  → plain-English → LQL via Claude
 
 Usage: python3 serve.py  →  http://localhost:45321
 """
-import base64, http.server, json, os, shutil, socketserver, subprocess, tempfile, urllib.parse, urllib.request, urllib.error
+import base64, http.server, io, json, os, re, shutil, socketserver, subprocess, tempfile, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timezone, timedelta
 
 PORT      = 45321
 DIR       = os.path.dirname(os.path.abspath(__file__))
 
-# Last compliance PDF cache: {'name': str, 'bytes': bytes}
 _last_compliance_pdf: dict = {}
 HTML_FILE = os.path.join(DIR, 'chatbox.html')
 
@@ -52,16 +51,11 @@ CORS = {
     'Access-Control-Allow-Headers': 'Content-Type, x-api-key, anthropic-version',
 }
 
-# LQL generation cache: normalized_objective → {queryId, queryText, rows, count, total}
 _lql_cache: dict = {}
-
-# FortiGuard outbreak RSS cache: refreshed every 30 minutes
 _fg_cache: dict = {'items': [], 'ts': 0.0}
 
 def _fg_outbreaks_cached():
     """Fetch and parse FortiGuard outbreak RSS, cache for 30 min. Returns list of items."""
-    import re as _re
-    import io as _io
     from email.utils import parsedate_to_datetime
     from defusedxml.ElementTree import parse as _safe_parse
 
@@ -70,16 +64,15 @@ def _fg_outbreaks_cached():
         return _fg_cache['items']
 
     try:
-        import urllib.request as _ur
-        req = _ur.Request(
+        req = urllib.request.Request(
             'https://www.fortiguard.com/rss/outbreakalert.xml',
             headers={'User-Agent': 'Mozilla/5.0 WebAIAgent/1.0'},
         )
-        with _ur.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:
             xml_bytes = r.read()
 
         root = _safe_parse(
-            _io.BytesIO(xml_bytes),
+            io.BytesIO(xml_bytes),
             forbid_dtd=True,
             forbid_entities=True,
             forbid_external=True,
@@ -96,11 +89,11 @@ def _fg_outbreaks_cached():
                 pub_iso = ''
             # Extract all CVE IDs mentioned in title + description
             cves = list(dict.fromkeys(
-                _re.findall(r'CVE-\d{4}-\d+', title + ' ' + desc, _re.IGNORECASE)
+                re.findall(r'CVE-\d{4}-\d+', title + ' ' + desc, re.IGNORECASE)
             ))
             cves = [c.upper() for c in cves]
             # Extract risk/severity hint (Critical, High, Medium, Low)
-            risk_m = _re.search(r'\b(Critical|High|Medium|Low)\b', title + ' ' + desc, _re.IGNORECASE)
+            risk_m = re.search(r'\b(Critical|High|Medium|Low)\b', title + ' ' + desc, re.IGNORECASE)
             risk   = risk_m.group(1).capitalize() if risk_m else ''
             items.append({
                 'title':   title,
@@ -122,9 +115,6 @@ _cve_intel_cache: dict = {}
 
 def _fetch_cve_intel(cve: str) -> dict:
     """Fetch EPSS, CISA KEV, NVD CVSS, and FortiGuard outbreaks for a CVE. Cached 1 hour."""
-    import urllib.request as _ur
-    import urllib.parse as _up
-
     now = datetime.now(timezone.utc).timestamp()
     if cve in _cve_intel_cache and now - _cve_intel_cache[cve].get('_ts', 0) < 3600:
         return {k: v for k, v in _cve_intel_cache[cve].items() if k != '_ts'}
@@ -133,13 +123,13 @@ def _fetch_cve_intel(cve: str) -> dict:
 
     def _get_json(url, headers=None, timeout=8):
         try:
-            req = _ur.Request(url, headers=headers or {'User-Agent': 'WebAIAgent/1.0'})
-            with _ur.urlopen(req, timeout=timeout) as r:
+            req = urllib.request.Request(url, headers=headers or {'User-Agent': 'WebAIAgent/1.0'})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read())
         except Exception:
             return None
 
-    # ── EPSS (Exploit Prediction Scoring System) ──────────────────────────────
+    # EPSS
     epss_data = _get_json(f'https://api.first.org/data/v1/epss?cve={cve}')
     if epss_data and epss_data.get('data'):
         e = epss_data['data'][0]
@@ -151,7 +141,7 @@ def _fetch_cve_intel(cve: str) -> dict:
     else:
         result['epss'] = None
 
-    # ── CISA KEV (Known Exploited Vulnerabilities) ────────────────────────────
+    # CISA KEV
     kev_data = _get_json('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json', timeout=12)
     if kev_data:
         kev_entry = next((v for v in kev_data.get('vulnerabilities', []) if v.get('cveID') == cve), None)
@@ -169,7 +159,7 @@ def _fetch_cve_intel(cve: str) -> dict:
     else:
         result['kev'] = None
 
-    # ── NVD CVSS ──────────────────────────────────────────────────────────────
+    # NVD CVSS
     nvd_data = _get_json(
         f'https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve}',
         headers={'User-Agent': 'WebAIAgent/1.0', 'Accept': 'application/json'},
@@ -194,11 +184,11 @@ def _fetch_cve_intel(cve: str) -> dict:
     else:
         result['nvd'] = None
 
-    # ── FortiGuard outbreaks ──────────────────────────────────────────────────
+    # FortiGuard outbreaks
     items = _fg_outbreaks_cached()
     result['outbreaks'] = [i for i in items if cve in i.get('cves', [])]
 
-    # ── Threat Radar score (0–100): CVSS + EPSS + KEV + outbreak ─────────────
+    # Threat Radar score (0–100): CVSS + EPSS + KEV + outbreak
     score = 0
     if result['nvd'] and result['nvd']['cvssV3Score']:
         score += result['nvd']['cvssV3Score'] * 4        # max 40
@@ -631,9 +621,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             err_body = e.read()
             try:
-                err_msg = json.loads(err_body).get('message', err_body.decode())
+                err_msg = json.loads(err_body).get('message', err_body.decode(errors='replace'))
             except Exception:
-                err_msg = err_body.decode()[:500]
+                err_msg = err_body.decode(errors='replace')[:500]
             self.send_json(e.code, json.dumps({'error': err_msg}).encode())
         finally:
             if cfg_guid:
@@ -883,8 +873,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def serve_outbreak_by_cve(self):
         """Return FortiGuard outbreak intel matching a CVE ID."""
-        import urllib.parse as _up
-        qs    = _up.parse_qs(_up.urlparse(self.path).query)
+        qs    = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         cve   = (qs.get('cveId', [''])[0]).upper().strip()
         items = _fg_outbreaks_cached()
         if not cve:
@@ -895,8 +884,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def serve_cve_intel(self):
         """Aggregate CVE threat intel: FortiGuard outbreaks + EPSS + CISA KEV + NVD CVSS."""
-        import urllib.parse as _up
-        qs  = _up.parse_qs(_up.urlparse(self.path).query)
+        qs  = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         cve = (qs.get('cveId', [''])[0]).upper().strip()
         if not cve:
             self.send_json(400, json.dumps({'error': 'cveId required'}).encode())
@@ -1075,8 +1063,8 @@ Encryption & Secrets:
   LW_CFG_AWS_KMS_KEYS_DESCRIBE_KEY            — KMS key details; fields nested under KeyMetadata: RESOURCE_CONFIG:KeyMetadata.Enabled = 'true'/'false', RESOURCE_CONFIG:KeyMetadata.KeyManager = 'CUSTOMER'/'AWS', RESOURCE_CONFIG:KeyMetadata.KeySpec = 'SYMMETRIC_DEFAULT', RESOURCE_CONFIG:KeyMetadata.KeyUsage
   LW_CFG_AWS_KMS_KEYS_GET_ROTATION_STATUS     — KMS rotation; RESOURCE_CONFIG:KeyRotationEnabled = 'true'/'false'
   LW_CFG_AWS_KMS_ALIASES                      — KMS aliases
-  LW_CFG_AWS_SECRETSMANAGER_SECRETS           — Secrets Manager; top-level: NAME, DESCRIPTION, ROTATION_ENABLED, LAST_ROTATED_DATE
-  LW_CFG_AWS_SSM_PARAMETERS                   — SSM Parameter Store; top-level: NAME, TYPE, DESCRIPTION (TYPE='SecureString' = encrypted)
+  LW_CFG_AWS_SECRETSMANAGER_SECRETS           — Secrets Manager; ALL fields are under RESOURCE_CONFIG — RESOURCE_CONFIG:Name::String, RESOURCE_CONFIG:RotationEnabled::String ('true'/'false'), RESOURCE_CONFIG:LastRotatedDate::String, RESOURCE_CONFIG:Description::String; NAME/ROTATION_ENABLED/LAST_ROTATED_DATE do NOT exist as top-level columns
+  LW_CFG_AWS_SSM_PARAMETERS                   — SSM Parameter Store; ALL fields are under RESOURCE_CONFIG — RESOURCE_CONFIG:Name::String, RESOURCE_CONFIG:Description::String, RESOURCE_CONFIG:Value::String; NOTE: RESOURCE_CONFIG:Type is INVALID because TYPE is a reserved LQL keyword — do NOT filter by parameter type; NAME/TYPE/DESCRIPTION do NOT exist as top-level columns
 
 Security & Audit:
   LW_CFG_AWS_CLOUDTRAIL                       — CloudTrail trails; RESOURCE_CONFIG:IsMultiRegionTrail = 'true'/'false', LogFileValidationEnabled = 'true'/'false'
@@ -1148,11 +1136,14 @@ Internet-exposed hosts:
 SSH logins from external IPs on internet-exposed hosts (multi-source join):
 {"queryId":"Custom_AWS_Hosts_ExternalSSHLogins","queryText":"{ source { LW_HA_SSH_LOGINS s WITH LW_HE_MACHINES m } filter { m.TAGS:lw_InternetExposure::String = 'Yes' AND s.IP_ADDR NOT LIKE '10.%' AND s.IP_ADDR NOT LIKE '192.168.%' } return distinct { s.MID, m.TAGS:Hostname::String as HOSTNAME, s.USERNAME, s.IP_ADDR, s.LOGIN_TIME, m.TAGS:Account::String as ACCOUNT } }"}
 
-Secrets Manager secrets without rotation:
-{"queryId":"Custom_AWS_SecretsManager_NoRotation","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } filter { ROTATION_ENABLED = false } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, LAST_ROTATED_DATE, 'Secret rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+List all Secrets Manager secrets:
+{"queryId":"Custom_AWS_SecretsManager_AllSecrets","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_CONFIG:Name::String as SECRET_NAME, RESOURCE_CONFIG:RotationEnabled::String as ROTATION_ENABLED, RESOURCE_CONFIG:LastRotatedDate::String as LAST_ROTATED_DATE } }"}
 
-SSM SecureString parameters (potential unmanaged secrets):
-{"queryId":"Custom_AWS_SSM_SecureParameters","queryText":"{ source { LW_CFG_AWS_SSM_PARAMETERS } filter { TYPE = 'SecureString' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, NAME, DESCRIPTION } }"}
+Secrets Manager secrets without rotation:
+{"queryId":"Custom_AWS_SecretsManager_NoRotation","queryText":"{ source { LW_CFG_AWS_SECRETSMANAGER_SECRETS } filter { RESOURCE_CONFIG:RotationEnabled = 'false' } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_CONFIG:Name::String as SECRET_NAME, RESOURCE_CONFIG:LastRotatedDate::String as LAST_ROTATED_DATE, 'Secret rotation not enabled' as COMPLIANCE_FAILURE_REASON } }"}
+
+SSM parameters (potential unmanaged secrets) — TYPE is a reserved keyword, do NOT filter by it:
+{"queryId":"Custom_AWS_SSM_AllParameters","queryText":"{ source { LW_CFG_AWS_SSM_PARAMETERS } return distinct { ACCOUNT_ALIAS, ACCOUNT_ID, ARN as RESOURCE_KEY, RESOURCE_REGION, RESOURCE_CONFIG:Name::String as PARAM_NAME, RESOURCE_CONFIG:Description::String as DESCRIPTION } }"}
 
 Entitlements unused for 90+ days (epoch 1742860800 = 90 days before 2026-06-23):
 {"queryId":"Custom_AWS_IAM_UnusedPermissions90Days","queryText":"{ source { LW_CE_ENTITLEMENTS } filter { LAST_USED_TIME IS NULL OR LAST_USED_TIME < sec_to_timestamp(1742860800) } return distinct { PRINCIPAL_ID, SERVICE, ACTION, RESOURCE_TYPE, RESOURCE_ID, POLICY_ID, LAST_USED_TIME } }"}
@@ -1192,24 +1183,8 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
         messages = [
             {'role': 'user', 'content': f'<system>\n{system_prompt}\n</system>\n\nObjective: {objective}'},
         ]
-        model = MODEL or 'claude-haiku-4-5'
-        req_body = json.dumps({
-            'model': model,
-            'max_tokens': 2048,
-            'messages': messages,
-        }).encode()
-
-        api_url = UPSTREAM.rstrip('/') + '/v1/messages'
-        req = urllib.request.Request(
-            api_url, data=req_body, method='POST',
-            headers={
-                'Content-Type': 'application/json',
-                'x-api-key': VIRTUAL_KEY,
-                'anthropic-version': '2023-06-01',
-            },
-        )
         def _call_claude(msgs):
-            body = json.dumps({'model': MODEL or 'claude-sonnet-4-5', 'max_tokens': 2048, 'messages': msgs}).encode()
+            body = json.dumps({'model': MODEL or 'claude-haiku-4-5', 'max_tokens': 2048, 'messages': msgs}).encode()
             r = urllib.request.Request(
                 UPSTREAM.rstrip('/') + '/v1/messages', data=body, method='POST',
                 headers={'Content-Type': 'application/json', 'x-api-key': VIRTUAL_KEY, 'anthropic-version': '2023-06-01'})
@@ -1230,6 +1205,31 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
             if brace > 0:
                 raw = raw[brace:]
             return json.loads(raw)
+
+        def _validate_lql(query_text):
+            """Validate query syntax only. Returns error string or None if valid."""
+            if not shutil.which('lacework'):
+                return None  # no CLI — skip validation
+            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.lql', delete=False)
+            tmp.write(query_text); tmp.close()
+            try:
+                cmd = ['lacework', 'query', 'run', '-f', tmp.name, '--validate_only']
+                if LW_PROFILE:
+                    cmd += ['--profile', LW_PROFILE]
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if r.returncode == 0:
+                    return None
+                err = (r.stderr or r.stdout or '').strip()
+                for line in err.splitlines():
+                    if 'Error:' in line or 'Unable to' in line or 'error' in line.lower():
+                        return line.strip()
+                return err[-300:] if err else 'validation failed'
+            except subprocess.TimeoutExpired:
+                return 'validation timed out'
+            except Exception as e:
+                return str(e)
+            finally:
+                os.unlink(tmp.name)
 
         def _run_lql(query_text):
             """Run query for real. Returns (rows, error_string). rows=None on error."""
@@ -1266,13 +1266,25 @@ Respond with ONLY a valid JSON object — no markdown, no code fences, no explan
             messages = [{'role': 'user', 'content': f'<system>\n{system_prompt}\n</system>\n\nObjective: {objective}'}]
             result = _call_claude(messages)
 
-            # run-then-fix loop — up to 3 attempts; caches validated query on success
+            # validate-then-fix loop — validate syntax first (fast), then run for real
             MAX_RETRIES = 3
             cached_rows = None
             for attempt in range(MAX_RETRIES):
                 query_text = result.get('queryText', '')
                 if not query_text or result.get('queryId') == 'USE_CVE_TAB':
                     break
+                # Step 1: validate syntax before executing
+                val_err = _validate_lql(query_text)
+                if val_err:
+                    if attempt < MAX_RETRIES - 1:
+                        messages.append({'role': 'assistant', 'content': json.dumps(result)})
+                        messages.append({'role': 'user', 'content': (
+                            f'That LQL query failed validation with this error:\n{val_err}\n\n'
+                            'Fix the LQL and return only the corrected JSON object.'
+                        )})
+                        result = _call_claude(messages)
+                    continue
+                # Step 2: run for real only after validation passes
                 rows, err = _run_lql(query_text)
                 if err is None:
                     cached_rows = rows

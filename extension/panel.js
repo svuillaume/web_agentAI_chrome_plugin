@@ -108,6 +108,7 @@ const GATEWAYS = {
 };
 
 const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search' };
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // ── State ─────────────────────────────────────────────────────────────────
 const history = [];
@@ -158,7 +159,7 @@ async function autoFillFromConfig() {
   try {
     const res = await fetch(BASE_URL + '/config');
     if (res.ok) cfg = await res.json();
-  } catch { /* serve.py not running */ }
+  } catch { /* offline */ }
 
   if (!cfg) {
     try {
@@ -226,7 +227,7 @@ async function showGreeting() {
         const cfg = await r.json();
         if (cfg.user_name) firstName = cfg.user_name;
       }
-    } catch { /* serve.py not running */ }
+    } catch { /* offline */ }
   }
 
   const name = firstName ? `, ${firstName.charAt(0).toUpperCase() + firstName.slice(1)}` : '';
@@ -253,7 +254,6 @@ el('model').addEventListener('change', () => chrome.storage.local.set({ bf_model
 // ── Markdown renderer ─────────────────────────────────────────────────────
 // Escape before transform so model output cannot inject HTML.
 function renderMarkdown(text) {
-  const esc  = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const link = (href, label) => {
     const url = /^https?:\/\//i.test(href) ? href : `https://${href}`;
     return `<a class="ext-link" data-href="${url}">${label}</a>`;
@@ -629,7 +629,7 @@ async function withPage(btnId, fn) {
 
       btn.classList.add('fg-alert');
       btn.title = `⚠ ${newest.length} outbreak alert${newest.length > 1 ? 's' : ''} in the last 5 days — click to view`;
-    } catch { /* serve.py not running */ }
+    } catch { /* offline */ }
   }
 
   btn.addEventListener('click', async () => {
@@ -963,8 +963,6 @@ async function fetchGithubRepoFiles(owner, repo, branchHint) {
 }
 
 function appendResultCard(icon, title, contentEl) {
-  const table = contentEl.querySelector('table');
-
   const buildCopyBtn = (body) => {
     const btn = document.createElement('button');
     btn.className   = 'rc-copy-btn';
@@ -1027,7 +1025,6 @@ function appendResultCard(icon, title, contentEl) {
 }
 
 function appendGithubCard(owner, repo, branch, files) {
-  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const repoUrl = `https://github.com/${owner}/${repo}`;
 
   // Group files by directory
@@ -1158,7 +1155,6 @@ function renderCodeSecResults(data, mode, ghCtx, scannedFiles) {
       appendResultCard('📦', 'FortiCNAPP SBOM', body);
       return;
     }
-    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     components.slice(0, 50).forEach(c => {
       const row = document.createElement('div');
       row.className = 'cs-row';
@@ -1200,8 +1196,6 @@ function renderCodeSecResults(data, mode, ghCtx, scannedFiles) {
   all.forEach(f => {
     (byCategory[f._cat] = byCategory[f._cat] || []).push(f);
   });
-
-  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   Object.entries(byCategory).forEach(([cat, findings]) => {
     const title = document.createElement('div');
@@ -1784,8 +1778,6 @@ function renderCveResults(data, resultsEl) {
   summary.textContent = `${data.cveId} — ${data.total_affected} affected hosts over ${data.period_days} days`;
   resultsEl.appendChild(summary);
 
-  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
   data.hosts.forEach(h => {
     const hostExposed = h.host_exposed || h.container_exposed;
     const card = document.createElement('div');
@@ -2094,7 +2086,6 @@ el('lql-gen-btn').addEventListener('click', async () => {
 function renderLqlTable(containerEl, rows, totalRows, queryLabel) {
   containerEl.innerHTML = '';
 
-  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const URL_RE = /^https?:\/\/\S+$/;
 
   const keys = Object.keys(rows[0]);
