@@ -815,6 +815,11 @@ async function send(silent = false) {
     if (!btn.contains(e.target) && !menu.contains(e.target)) {
       menu.classList.remove('open');
       btn.classList.remove('open');
+      // Also close SBOM picker if click is outside it too
+      const picker = el('sbom-picker');
+      if (picker && !picker.contains(e.target) && e.target !== el('sbom')) {
+        picker.classList.remove('open');
+      }
     }
   });
 })();
@@ -1390,7 +1395,7 @@ async function runCodeSec(mode) {
       return;
     }
 
-    const sbomFmt = el('sbom-format')?.value || 'cdx-json';
+    const sbomFmt = (document.querySelector('input[name="sbom-fmt"]:checked') || {}).value || 'lw-json';
     const res = await fetch(`${BASE_URL}/${mode === 'sbom' ? 'sbom' : 'codesec'}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1422,7 +1427,32 @@ async function runCodeSec(mode) {
 }
 
 el('codesec').addEventListener('click', () => { startNewSession('CodeSec'); runCodeSec('scan'); });
-el('sbom').addEventListener('click',    () => { startNewSession('SBOM');    runCodeSec('sbom'); });
+
+// SBOM Gen: open format picker, positioned below the button
+el('sbom').addEventListener('click', e => {
+  e.stopPropagation();
+  const picker = el('sbom-picker');
+  const rect   = e.currentTarget.getBoundingClientRect();
+  picker.style.top  = `${rect.bottom + 4}px`;
+  picker.style.left = `${rect.left}px`;
+  picker.classList.toggle('open');
+});
+el('sbom-cancel').addEventListener('click', e => {
+  e.stopPropagation();
+  el('sbom-picker').classList.remove('open');
+});
+el('sbom-generate').addEventListener('click', e => {
+  e.stopPropagation();
+  el('sbom-picker').classList.remove('open');
+  startNewSession('SBOM');
+  runCodeSec('sbom');
+});
+// Close picker on outside click
+document.addEventListener('click', e => {
+  if (!el('sbom-picker').contains(e.target) && e.target !== el('sbom')) {
+    el('sbom-picker').classList.remove('open');
+  }
+});
 el('codesec-close').addEventListener('click', () => {
   el('codesec-panel').classList.remove('open');
 });

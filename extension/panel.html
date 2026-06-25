@@ -236,20 +236,88 @@ body {
 .fcnapp-item.accent:hover { color: var(--accent); background: var(--accent-bg); }
 .fcnapp-item.success:hover{ color: var(--ok);     background: var(--ok-bg); }
 .fcnapp-item.danger:hover { color: var(--err);    background: var(--err-bg); }
-.fcnapp-sbom-row { display: flex; align-items: center; gap: 2px; }
-.fcnapp-sbom-row #sbom { flex: 1; }
-.sbom-fmt-select {
+/* ── SBOM format picker sub-menu ─────────────────────────────────────────── */
+#sbom-picker {
+  display: none;
+  position: fixed;
+  z-index: 210;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px 8px;
+  min-width: 200px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  flex-direction: column;
+  gap: 2px;
+}
+#sbom-picker.open { display: flex; }
+.sbom-picker-title {
   font-family: var(--sans);
   font-size: 10px;
-  background: var(--surface3);
+  font-weight: 600;
   color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 3px 4px;
-  cursor: pointer;
-  max-width: 100px;
-  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
+.sbom-fmt-group { padding: 4px 0 2px; }
+.sbom-fmt-group-label {
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 2px 0;
+}
+.sbom-fmt-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .1s;
+}
+.sbom-fmt-option:hover { background: var(--surface3); }
+.sbom-fmt-option input[type=radio] { accent-color: var(--accent); cursor: pointer; margin: 0; }
+.sbom-fmt-option span {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+  flex: 1;
+}
+.sbom-fmt-option span em {
+  font-style: normal;
+  font-size: 9px;
+  color: var(--muted);
+  margin-left: 5px;
+}
+.sbom-picker-go {
+  margin-top: 8px;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.sbom-picker-go button {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: opacity .1s;
+}
+#sbom-generate { background: var(--accent); color: #fff; }
+#sbom-generate:hover { opacity: .88; }
+#sbom-cancel { background: var(--surface3); color: var(--muted); }
+#sbom-cancel:hover { color: var(--text); }
 
 /* ── Drawers (shared) ────────────────────────────────────────────────────── */
 .drawer {
@@ -1143,19 +1211,45 @@ a.ext-link:hover { color: var(--accent-d); }
     <button id="fcnapp-btn" class="chip accent" title="FortiCNAPP tools"> FortiCNAPP <span class="caret">▼</span></button>
     <div id="fcnapp-menu">
       <button id="codesec"    class="fcnapp-item accent"  title="SCA + SAST scan on code found on this page&#10;&#10;SAST languages: Go, Java, JavaScript, PHP, Python, TypeScript&#10;&#10;SCA languages: .NET (deps.json, packages.lock.json), C/C++ (conan.lock), Go (go.mod, go.sum), Java (Gradle, Maven, Bazel), Node.js (package-lock.json, pnpm-lock.yaml, yarn.lock), PHP (composer.lock), Python (requirements.txt, Pipfile.lock, poetry.lock, uv.lock), Ruby (Gemfile.lock), Rust (Cargo.lock)"> CodeScan</button>
-      <div class="fcnapp-sbom-row">
-        <button id="sbom" class="fcnapp-item accent" title="Generate SBOM in the selected format from code found on this page&#10;&#10;Formats: CycloneDX (cdx-json, cdx-xml), SPDX (spdx-json, spdx-tag, spdx-yaml), SARIF, Lacework (lw-json), GitLab (gitlab-json)"> SBOM Gen</button>
-        <select id="sbom-format" class="sbom-fmt-select" title="SBOM output format">
-          <option value="cdx-json">CycloneDX JSON</option>
-          <option value="cdx-xml">CycloneDX XML</option>
-          <option value="spdx-json">SPDX JSON</option>
-          <option value="spdx-tag">SPDX Tag</option>
-          <option value="spdx-yaml">SPDX YAML</option>
-          <option value="sarif">SARIF</option>
-          <option value="lw-json">Lacework JSON</option>
-          <option value="gitlab-json">GitLab JSON</option>
-        </select>
-      </div>
+      <button id="sbom" class="fcnapp-item accent" title="Generate SBOM — choose format before generating"> SBOM Gen</button>
+
+  <!-- SBOM format picker (opens on SBOM Gen click, positioned by JS) -->
+  <div id="sbom-picker">
+    <div class="sbom-picker-title">📦 SBOM Format</div>
+
+    <div class="sbom-fmt-group">
+      <div class="sbom-fmt-group-label">Lacework</div>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="lw-json" checked><span>lw-json<em>default</em></span></label>
+    </div>
+
+    <div class="sbom-fmt-group">
+      <div class="sbom-fmt-group-label">CycloneDX</div>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="cdx-json"><span>cdx-json</span></label>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="cdx-xml"><span>cdx-xml</span></label>
+    </div>
+
+    <div class="sbom-fmt-group">
+      <div class="sbom-fmt-group-label">SPDX</div>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="spdx-json"><span>spdx-json</span></label>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="spdx-tag"><span>spdx-tag</span></label>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="spdx-yaml"><span>spdx-yaml</span></label>
+    </div>
+
+    <div class="sbom-fmt-group">
+      <div class="sbom-fmt-group-label">SARIF</div>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="sarif"><span>sarif</span></label>
+    </div>
+
+    <div class="sbom-fmt-group">
+      <div class="sbom-fmt-group-label">GitLab</div>
+      <label class="sbom-fmt-option"><input type="radio" name="sbom-fmt" value="gitlab-json"><span>gitlab-json</span></label>
+    </div>
+
+    <div class="sbom-picker-go">
+      <button id="sbom-cancel">Cancel</button>
+      <button id="sbom-generate">Generate →</button>
+    </div>
+  </div>
       <button id="compliance" class="fcnapp-item success" title="Generate compliance PDF report"> Compliance Report</button>
       <button id="lql"        class="fcnapp-item accent"  title="Run LQL queries against your tenant"> Advanced Analytics</button>
       <button id="cve-btn"    class="fcnapp-item danger"  title="CVE attack surface across hosts &amp; containers"> Enriched Attack Threat Surface</button>
