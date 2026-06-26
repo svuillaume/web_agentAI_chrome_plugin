@@ -1681,6 +1681,115 @@ el('cve-analyse').addEventListener('click', () => {
   send(true);
 });
 
+// ── Regulatory context: map cloud regions → applicable compliance obligations ──
+function _regulatoryContext(regions = []) {
+  // Normalise region strings to detect geography
+  const r = regions.map(s => (s || '').toLowerCase()).join(' ');
+
+  const frameworks = [];
+
+  // Canada — PIPEDA + provincial (Quebec Law 25)
+  const isCanada = /\bca-[a-z]|\bcanada\b/.test(r);
+  if (isCanada) {
+    frameworks.push({
+      name: 'PIPEDA (Canada)',
+      obligations: [
+        'Mandatory breach notification to the Office of the Privacy Commissioner (OPC) when a breach creates a "real risk of significant harm" — report as soon as feasible.',
+        'Notify affected individuals directly when a real risk of significant harm exists.',
+        'Quebec Law 25 (Bill 64): notify the Commission d\'accès à l\'information (CAI) within 72 hours of becoming aware of a confidentiality incident.',
+        'Maintain a record of all breaches for 24 months.',
+        'Threat hunting is required to confirm scope — any unconfirmed breach must be treated as a potential reportable incident.',
+      ],
+      huntingRequirement: 'Launch threat hunt within 24h to determine if data exfiltration occurred — PIPEDA notification clock starts on discovery, not confirmation.',
+    });
+  }
+
+  // USA
+  const isUSA = /\bus-[a-z]|\bunited states\b/.test(r);
+  if (isUSA) {
+    frameworks.push({
+      name: 'NIST CSF / US Federal',
+      obligations: [
+        'NIST SP 800-61r2: Incident response — contain within 1h for critical, eradicate within 24h.',
+        'If healthcare data involved: HIPAA Breach Notification Rule — report to HHS within 60 days of discovery; notify individuals without unreasonable delay.',
+        'If payment card data: PCI-DSS — notify acquiring bank immediately; preserve forensic evidence.',
+        'CISA: Report significant cyber incidents to CISA within 72 hours (CIRCIA, effective 2026).',
+      ],
+      huntingRequirement: 'NIST IR Phase 3: Eradication requires confirmed scope via threat hunt before declaring containment.',
+    });
+  }
+
+  // EU / Europe
+  const isEU = /\beu-[a-z]|\bap-[a-z].*eu|\bfrankfurt\b|\bireland\b|\bparis\b|\bstockholm\b|\bspain\b|\bmilan\b/.test(r);
+  if (isEU) {
+    frameworks.push({
+      name: 'GDPR (EU)',
+      obligations: [
+        'GDPR Article 33: Notify supervisory authority within 72 hours of becoming aware of a personal data breach.',
+        'GDPR Article 34: Notify affected individuals "without undue delay" when breach likely results in high risk.',
+        'NIS2 Directive: Notify CSIRT within 24 hours (early warning) and within 72 hours (full notification).',
+        'Maintain breach register under Article 33(5).',
+      ],
+      huntingRequirement: 'GDPR 72h clock starts on awareness — threat hunt must begin immediately to scope the breach before notification.',
+    });
+  }
+
+  // UK
+  const isUK = /\beu-west-2\b|\blondon\b|\buk\b/.test(r);
+  if (isUK) {
+    frameworks.push({
+      name: 'UK GDPR / ICO',
+      obligations: [
+        'UK GDPR: Report personal data breach to ICO within 72 hours.',
+        'Notify individuals when breach poses high risk to their rights and freedoms.',
+        'Cyber Essentials: Patch critical vulnerabilities within 14 days.',
+      ],
+      huntingRequirement: 'ICO 72h notification window — begin breach scoping immediately.',
+    });
+  }
+
+  // Asia-Pacific
+  const isAPAC = /\bap-[a-z]|\basia\b|\bsydney\b|\btokyo\b|\bsingapore\b|\bseoul\b|\bmumbai\b|\bjakarta\b/.test(r);
+  if (isAPAC && !isEU) {
+    frameworks.push({
+      name: 'APAC Privacy Laws',
+      obligations: [
+        'Australia Privacy Act: Mandatory breach notification under the Notifiable Data Breaches (NDB) scheme — notify OAIC and individuals as soon as practicable.',
+        'Japan APPI: Notify PPC and affected individuals within 30 days (3–5 days for serious breaches).',
+        'Singapore PDPA: Notify PDPC within 3 days of assessing a notifiable breach.',
+      ],
+      huntingRequirement: 'Begin scoping within 24h — notification timelines vary by jurisdiction but all start from "awareness".',
+    });
+  }
+
+  // Default fallback — always include ISO 27001
+  frameworks.push({
+    name: 'ISO 27001:2022',
+    obligations: [
+      'ISO 27001 A.5.26: Response to information security incidents — document, contain, eradicate, recover.',
+      'ISO 27001 A.5.28: Collect and preserve evidence for forensic purposes.',
+      'ISO 27001 A.6.8: Employees must report security events immediately.',
+    ],
+    huntingRequirement: 'ISO 27001 requires documented evidence of incident scope before closure.',
+  });
+
+  if (!frameworks.length) return '';
+
+  const lines = ['', '=== REGULATORY OBLIGATIONS (based on affected regions) ==='];
+  frameworks.forEach(fw => {
+    lines.push(``, `--- ${fw.name} ---`);
+    fw.obligations.forEach(o => lines.push(`  • ${o}`));
+    lines.push(`  ⚑ Threat hunting requirement: ${fw.huntingRequirement}`);
+  });
+  lines.push(
+    ``,
+    `IMPORTANT: Include a "Regulatory & Compliance Obligations" section in the Next Steps.`,
+    `List the applicable frameworks above, their notification deadlines, and who (DPO / Legal / CISO) must act.`,
+    `If a breach cannot be ruled out, treat as a potential notifiable incident and state the notification deadline.`,
+  );
+  return lines.join('\n');
+}
+
 const EXEC_REPORT_TEMPLATE = `Write a security report following the 5-section structure in your system prompt.
 CRITICAL: Section 5 "How to Fix" MUST include:
 - A specific numbered action item per fix (use rpt-action components)
@@ -1783,8 +1892,13 @@ function buildCveAnalysisPrompt(d, fgOutbreaks) {
     `4. Affected Resources — one resource card per host. rpt-resource-name must contain the FULL hostname (do not truncate). rpt-resource-meta must include: severity badge, CSP account ID, region, internet-exposed flag if applicable.`,
     `5. How to Fix + Next Steps — MUST include the exact patch command (e.g. apt-get install <pkg>=<version>, yum update, docker pull <image>:<tag>), urgency (NOW/24h/7d), and who owns it. Use fenced code blocks for commands.`,
   );
-  if (intel.kev?.inKev)            lines.push(`NOTE: This CVE is in CISA KEV — actively exploited. Urgency is NOW.`);
+  if (intel.kev?.inKev)             lines.push(`NOTE: This CVE is in CISA KEV — actively exploited. Urgency is NOW.`);
   if (intel.epss?.percentile > 0.9) lines.push(`NOTE: EPSS top 10th percentile — patch within 24h.`);
+
+  // Inject region-aware regulatory obligations
+  const regions = d.hosts.map(h => h.region).filter(Boolean);
+  lines.push(_regulatoryContext(regions));
+
   return lines.join('\n');
 }
 
@@ -2304,11 +2418,13 @@ el('lql-run').addEventListener('click', async () => {
     appendResultCard('📊', `LQL: ${query.id} — ${statusEl.textContent}`, resultsEl);
 
     // Plain-text summary for AI context
-    const keys   = Object.keys(rows[0]);
-    const sample = rows.slice(0, 50).map(r => keys.map(k => `${k}=${r[k] ?? ''}`).join(' | ')).join('\n');
+    const keys       = Object.keys(rows[0]);
+    const sample     = rows.slice(0, 50).map(r => keys.map(k => `${k}=${r[k] ?? ''}`).join(' | ')).join('\n');
+    const regionKeys = keys.filter(k => /region/i.test(k));
+    const lqlRegions = [...new Set(rows.flatMap(r => regionKeys.map(k => r[k])).filter(Boolean))];
     history.push({
       role: 'user',
-      content: `Security finding data from LQL query "${query.id}" — ${count} rows:\n\n${sample}${formatApiEnrichment(data.api_enrichment)}\n\n${EXEC_REPORT_TEMPLATE}`,
+      content: `Security finding data from LQL query "${query.id}" — ${count} rows:\n\n${sample}${formatApiEnrichment(data.api_enrichment)}\n\n${EXEC_REPORT_TEMPLATE}${_regulatoryContext(lqlRegions)}`,
     });
     send(true); // auto-triggers executive analysis; user turn already pushed above
   } catch (e) {
@@ -2503,11 +2619,14 @@ el('lql-gen-btn').addEventListener('click', async () => {
     renderLqlTable(resultsEl, rows, total, label);
     appendResultCard('📊', `LQL: ${label} — ${statusEl.textContent}`, resultsEl);
 
-    const keys   = Object.keys(rows[0]);
-    const sample = rows.slice(0, 50).map(r => keys.map(k => `${k}=${r[k] ?? ''}`).join(' | ')).join('\n');
+    const keys    = Object.keys(rows[0]);
+    const sample  = rows.slice(0, 50).map(r => keys.map(k => `${k}=${r[k] ?? ''}`).join(' | ')).join('\n');
+    // Extract regions from row data for regulatory context
+    const regionKeys = keys.filter(k => /region/i.test(k));
+    const lqlRegions = [...new Set(rows.flatMap(r => regionKeys.map(k => r[k])).filter(Boolean))];
     history.push({
       role: 'user',
-      content: `Security finding data from LQL query "${label}" — ${count} rows:\n\n${sample}${formatApiEnrichment(data.api_enrichment)}\n\n${EXEC_REPORT_TEMPLATE}`,
+      content: `Security finding data from LQL query "${label}" — ${count} rows:\n\n${sample}${formatApiEnrichment(data.api_enrichment)}\n\n${EXEC_REPORT_TEMPLATE}${_regulatoryContext(lqlRegions)}`,
     });
     send(true);
   } catch (e) {
