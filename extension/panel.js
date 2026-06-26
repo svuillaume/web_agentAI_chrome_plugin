@@ -2623,9 +2623,11 @@ async function loadCompliancePdfText(reportName) {
         ? data.text.slice(0, MAX) + `\n\n[Truncated — ${data.text.length} chars total]`
         : data.text;
       history.push({ role: 'user', content: `Here is the content of the compliance report "${data.name}":\n\n${text}\n\nAsk me anything about this report.` });
-      appendTurn('system', `✓ "${data.name}" loaded — ask your questions below.`);
-    } else if (data.note) {
-      appendTurn('system', `⚠ ${data.note}`);
+      appendTurn('system', `✓ "${data.name}" loaded (${text.length.toLocaleString()} chars) — ask your questions below.`);
+    } else {
+      appendTurn('system', data.note
+        ? `⚠ ${data.note}`
+        : `⚠ PDF text extraction returned empty — the server may need to be restarted. Run: kill $(lsof -ti:45321) && python3 serve.py`);
     }
   } catch (e) {
     appendTurn('system', `PDF load error: ${e.message}`);
